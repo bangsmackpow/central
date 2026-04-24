@@ -18,47 +18,53 @@ npx wrangler r2 bucket create central-assets
 Update `wrangler.toml` with your `database_id`.
 
 ### 3. Local Development
-1. Install dependencies:
+1. **Install dependencies**:
    ```bash
-   npm install
+   npm install --legacy-peer-deps
    ```
-2. Copy `.env.example` to `.env` and fill in the values.
-3. Apply local migrations:
+2. **Setup Environment**: Copy `.env.example` to `.env` and fill in the values.
+3. **Database Migrations**:
    ```bash
    npm run db:generate
    npx wrangler d1 migrations apply central-db --local
    ```
-4. Start the development server:
+4. **Start Dev Server**:
    ```bash
    npm run dev
    ```
 
-### 4. Deployment
-1. Build the project:
-   ```bash
-   npm run build
-   ```
-2. Deploy to Cloudflare Pages:
-   ```bash
-   npm run deploy
-   ```
-3. Apply production migrations:
+### 4. Deployment (Cloudflare Pages)
+1. **GitHub Connection**: Link this repo to Cloudflare Pages.
+2. **Environment Variables**: Add the following in the Cloudflare Dashboard:
+    - `BETTER_AUTH_SECRET`: A long random string.
+    - `BETTER_AUTH_URL`: Your production URL (e.g., `https://central.pages.dev`).
+    - `VITE_BETTER_AUTH_URL`: Same as above.
+    - `NPM_FLAGS`: `--legacy-peer-deps` (Critical for build success).
+3. **Bindings**:
+    - **D1 Database**: Bind `DB` to your `central-db`.
+    - **R2 Bucket**: Bind `BUCKET` to your `central-assets`.
+4. **Production Migrations**:
    ```bash
    npx wrangler d1 migrations apply central-db --remote
    ```
 
 ## 🛠 Tech Stack
 - **Framework**: Hono + Vite + React
-- **Authentication**: Better-Auth
+- **Authentication**: Better-Auth (D1 Adapter)
 - **Database**: Cloudflare D1 (Drizzle ORM)
 - **Storage**: Cloudflare R2
-- **Styling**: Tailwind CSS + shadcn/ui (custom)
-- **Markdown**: Unified/Remark/Rehype
+- **Validation**: Zod + Hono zValidator
+- **Markdown**: Unified/Remark/Rehype with `rehype-sanitize`
 
 ## 📂 Project Structure
-- `src/index.tsx`: Hono server (API & SSR proxy)
-- `src/client.tsx`: React entry point
-- `src/db/`: Database schema and client
-- `src/components/`: React components
-- `src/auth.ts`: Better-Auth server-side config
-- `src/lib/auth-client.ts`: Better-Auth client-side config
+- `src/index.tsx`: Hono server (API & R2 Proxy)
+- `src/db/schema.ts`: Drizzle schema (Users, Projects, Links)
+- `src/types.ts`: Shared TypeScript interfaces
+- `src/components/editor/`: XSS-safe Markdown editor
+- `PROJECT_MEMORY.md`: Implementation history and technical decisions
+- `agents.md`: Vision for AI Agent integration
+
+## 🤝 Next Steps
+- Implement "Create Project" modal in the UI.
+- Add R2 image upload for project thumbnails.
+- Integrate Cloudflare Vectorize for documentation search.
