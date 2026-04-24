@@ -9,6 +9,9 @@ export const getAuth = (d1: D1Database, env: any) => {
     }),
     emailAndPassword: {
       enabled: true,
+      signUp: {
+        enabled: true
+      }
     },
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,
