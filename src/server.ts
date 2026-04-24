@@ -6,7 +6,7 @@ import { getAuth } from "./auth";
 import { getDb } from "./db";
 import { projects, quickLinks, settings } from "./db/schema";
 import { Bindings, Variables } from "./types";
-import { encrypt, decrypt } from "./lib/crypto";
+import { encrypt, decrypt, isEncrypted } from "./lib/crypto";
 import { syncProjectMetadata } from "./lib/github";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
@@ -67,7 +67,7 @@ api.post("/settings", zValidator("json", settingsSchema), async (c) => {
   const masterKey = c.env.MASTER_ENCRYPTION_KEY;
 
   if (!masterKey) {
-    return c.json({ error: "Server encryption not configured" }, 500);
+    return c.json({ error: "Server encryption (MASTER_ENCRYPTION_KEY) not configured in Cloudflare" }, 500);
   }
 
   const existing = await db.select()
@@ -120,11 +120,12 @@ api.get("/github/repos", async (c) => {
   }
 
   let pat = userSettings.githubPat;
-  if (pat.includes(":")) {
+  
+  if (isEncrypted(pat)) {
     try {
       pat = await decrypt(pat, masterKey);
     } catch (e) {
-      return c.json({ error: "Failed to decrypt GitHub PAT" }, 500);
+      return c.json({ error: "Decryption failed. Please re-save your GitHub PAT in the Admin Panel." }, 500);
     }
   }
 
@@ -185,12 +186,10 @@ api.post("/projects", zValidator("json", projectSchema), async (c) => {
   const body = c.req.valid("json");
   const masterKey = c.env.MASTER_ENCRYPTION_KEY;
 
-  // Get user settings for GitHub PAT
   const userSettings = await db.select().from(settings).where(eq(settings.userId, user.id)).get();
 
   let finalData = { ...body };
 
-  // If promoted from GitHub, try to auto-discover
   if (body.githubRepoFullName && userSettings?.githubPat) {
     try {
       const meta = await syncProjectMetadata(body.githubRepoFullName, userSettings.githubPat, masterKey);
@@ -203,7 +202,6 @@ api.post("/projects", zValidator("json", projectSchema), async (c) => {
     }
   }
 
-  // Get max order
   const lastProject = await db.select({ order: projects.order })
     .from(projects)
     .where(eq(projects.userId, user.id))

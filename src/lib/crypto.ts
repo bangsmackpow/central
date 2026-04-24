@@ -3,6 +3,8 @@
  * Optimized for Cloudflare Workers.
  */
 
+const ENCRYPTION_PREFIX = "enc:v1:";
+
 async function getEncryptionKey(secret: string): Promise<CryptoKey> {
   const encoder = new TextEncoder();
   const rawKey = encoder.encode(secret);
@@ -17,22 +19,16 @@ async function getEncryptionKey(secret: string): Promise<CryptoKey> {
   );
 }
 
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
+function bufToBase64(buffer: ArrayBuffer): string {
+  return btoa(String.fromCharCode(...new Uint8Array(buffer)));
 }
 
-function base64ToArrayBuffer(base64: string): Uint8Array {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
+function base64ToBuf(base64: string): Uint8Array {
+  return new Uint8Array(atob(base64).split("").map(c => c.charCodeAt(0)));
+}
+
+export function isEncrypted(text: string): boolean {
+  return text.startsWith(ENCRYPTION_PREFIX);
 }
 
 /**
@@ -50,22 +46,26 @@ export async function encrypt(text: string, masterKey: string): Promise<string> 
     data
   );
 
-  const ivBase64 = arrayBufferToBase64(iv);
-  const encryptedBase64 = arrayBufferToBase64(encrypted);
+  const ivBase64 = bufToBase64(iv);
+  const encryptedBase64 = bufToBase64(encrypted);
 
-  return `${ivBase64}:${encryptedBase64}`;
+  return `${ENCRYPTION_PREFIX}${ivBase64}:${encryptedBase64}`;
 }
 
 /**
  * Decrypts a string.
  */
 export async function decrypt(encryptedData: string, masterKey: string): Promise<string> {
-  const [ivBase64, ciphertextBase64] = encryptedData.split(":");
+  if (!isEncrypted(encryptedData)) return encryptedData;
+
+  const dataWithoutPrefix = encryptedData.slice(ENCRYPTION_PREFIX.length);
+  const [ivBase64, ciphertextBase64] = dataWithoutPrefix.split(":");
+  
   if (!ivBase64 || !ciphertextBase64) throw new Error("Invalid encrypted data format");
 
   const key = await getEncryptionKey(masterKey);
-  const iv = base64ToArrayBuffer(ivBase64);
-  const ciphertext = base64ToArrayBuffer(ciphertextBase64);
+  const iv = base64ToBuf(ivBase64);
+  const ciphertext = base64ToBuf(ciphertextBase64);
 
   const decrypted = await crypto.subtle.decrypt(
     { name: "AES-GCM", iv },
