@@ -9,12 +9,6 @@ import { Bindings, Variables } from "./types";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-// Debug logging
-app.use("*", async (c, next) => {
-  console.log(`[${c.req.method}] ${c.req.url}`);
-  await next();
-});
-
 // Better Auth routes
 app.all("/api/auth/*", async (c) => {
   const auth = getAuth(c.env.DB, c.env);
@@ -124,5 +118,10 @@ api.get("/r2/:key{.+$}", async (c) => {
 
 // Mount API
 app.route("/api", api);
+
+// Fallback to static assets for anything else (serves React app)
+app.get("*", async (c) => {
+  return c.env.ASSETS.fetch(c.req.raw);
+});
 
 export { app };

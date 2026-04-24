@@ -36,6 +36,7 @@ export type Bindings = {
   BUCKET: R2Bucket;
   BETTER_AUTH_SECRET: string;
   BETTER_AUTH_URL: string;
+  ASSETS: { fetch: typeof fetch };
 };
 
 export type Variables = {
