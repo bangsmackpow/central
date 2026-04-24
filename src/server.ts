@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, and } from "drizzle-orm";
+import { eq, and, asc } from "drizzle-orm";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { getAuth } from "./auth";
@@ -119,8 +119,6 @@ api.get("/github/repos", async (c) => {
   }
 
   let pat = userSettings.githubPat;
-  
-  // Attempt to decrypt if it looks like encrypted data (contains a colon)
   if (pat.includes(":")) {
     try {
       pat = await decrypt(pat, masterKey);
@@ -156,10 +154,11 @@ api.get("/projects", async (c) => {
     const projectsList = await db.query.projects.findMany({
       where: eq(projects.userId, user.id),
       with: { quickLinks: true },
+      orderBy: [asc(projects.order)],
     });
     return c.json(projectsList);
   } catch (e: any) {
-    const projectsList = await db.select().from(projects).where(eq(projects.userId, user.id));
+    const projectsList = await db.select().from(projects).where(eq(projects.userId, user.id)).orderBy(asc(projects.order));
     return c.json(projectsList);
   }
 });
@@ -184,6 +183,15 @@ api.post("/projects", zValidator("json", projectSchema), async (c) => {
   const user = c.get("user");
   const body = c.req.valid("json");
 
+  // Get max order to put at end
+  const lastProject = await db.select({ order: projects.order })
+    .from(projects)
+    .where(eq(projects.userId, user.id))
+    .orderBy(asc(projects.order))
+    .get();
+  
+  const nextOrder = lastProject ? lastProject.order + 1 : 0;
+
   const id = crypto.randomUUID();
   await db.insert(projects).values({
     id,
@@ -200,11 +208,29 @@ api.post("/projects", zValidator("json", projectSchema), async (c) => {
     codingAgents: body.codingAgents,
     primaryModel: body.primaryModel,
     agentInstructionsUrl: body.agentInstructionsUrl,
+    order: nextOrder,
     createdAt: new Date(),
     updatedAt: new Date(),
   });
 
   return c.json({ id, success: true });
+});
+
+api.patch("/projects/reorder", zValidator("json", z.object({
+  projectIds: z.array(z.string())
+})), async (c) => {
+  const db = getDb(c.env.DB);
+  const user = c.get("user");
+  const { projectIds } = c.req.valid("json");
+
+  // Perform bulk update in a transaction if possible, or sequential
+  for (let i = 0; i < projectIds.length; i++) {
+    await db.update(projects)
+      .set({ order: i })
+      .where(and(eq(projects.id, projectIds[i]), eq(projects.userId, user.id)));
+  }
+
+  return c.json({ success: true });
 });
 
 api.patch("/projects/:id", zValidator("json", projectSchema.partial()), async (c) => {

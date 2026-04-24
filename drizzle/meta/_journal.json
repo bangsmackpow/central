@@ -15,6 +15,13 @@
       "when": 1777050658077,
       "tag": "0001_burly_multiple_man",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1777054206177,
+      "tag": "0002_breezy_blonde_phantom",
+      "breakpoints": true
     }
   ]
 }

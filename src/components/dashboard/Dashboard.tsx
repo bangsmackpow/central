@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { LogOut, Folder, Plus, Settings as SettingsIcon } from "lucide-react";
+import { LogOut, Folder, Plus, Settings as SettingsIcon, GripVertical } from "lucide-react";
+import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
 import { authClient } from "../../lib/auth-client";
 import { Project, User } from "../../types";
 import ProjectCard from "./ProjectCard";
@@ -14,17 +15,36 @@ export default function Dashboard({ user }: { user: User }) {
 
   useEffect(() => {
     if (view === "dashboard") {
-      fetch("/api/projects")
-        .then((res) => res.json())
-        .then((data) => {
-          setProjects(data);
-          setLoading(false);
-        });
+      fetchProjects();
     }
   }, [view]);
 
+  const fetchProjects = async () => {
+    const res = await fetch("/api/projects");
+    const data = await res.json();
+    setProjects(data);
+    setLoading(false);
+  };
+
   const handleLogout = async () => {
     await authClient.signOut();
+  };
+
+  const onDragEnd = async (result: DropResult) => {
+    if (!result.destination) return;
+
+    const items = Array.from(projects);
+    const [reorderedItem] = items.splice(result.source.index, 1);
+    items.splice(result.destination.index, 0, reorderedItem);
+
+    setProjects(items);
+
+    // Persist to server
+    await fetch("/api/projects/reorder", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectIds: items.map(p => p.id) }),
+    });
   };
 
   return (
@@ -43,19 +63,43 @@ export default function Dashboard({ user }: { user: User }) {
           >
             Dashboard Overview
           </button>
-          <div className="pt-4 pb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3">
-            Projects
+          
+          <div className="pt-4 pb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 flex justify-between items-center">
+            <span>Projects</span>
+            <span className="text-[10px] lowercase font-normal opacity-50 italic">drag to sort</span>
           </div>
-          {projects.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => { setView("dashboard"); setSelectedProject(p); }}
-              className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${selectedProject?.id === p.id ? 'bg-secondary text-secondary-foreground' : 'hover:bg-muted'}`}
-            >
-              <div className="w-2 h-2 rounded-full bg-green-500" />
-              <span className="truncate">{p.name}</span>
-            </button>
-          ))}
+
+          <DragDropContext onDragEnd={onDragEnd}>
+            <Droppable droppableId="projects-list">
+              {(provided) => (
+                <div {...provided.droppableProps} ref={provided.innerRef} className="space-y-1">
+                  {projects.map((p, index) => (
+                    <Draggable key={p.id} draggableId={p.id} index={index}>
+                      {(provided, snapshot) => (
+                        <div
+                          ref={provided.innerRef}
+                          {...provided.draggableProps}
+                          className={`group flex items-center gap-1 rounded-md transition-colors ${snapshot.isDragging ? 'bg-secondary ring-1 ring-primary/20' : ''}`}
+                        >
+                          <div {...provided.dragHandleProps} className="p-2 text-muted-foreground/30 group-hover:text-muted-foreground cursor-grab active:cursor-grabbing">
+                            <GripVertical className="w-3 h-3" />
+                          </div>
+                          <button
+                            onClick={() => { setView("dashboard"); setSelectedProject(p); }}
+                            className={`flex-1 flex items-center gap-2 py-2 pr-3 text-sm font-medium transition-colors text-left truncate ${selectedProject?.id === p.id ? 'text-primary' : 'hover:text-primary text-muted-foreground'}`}
+                          >
+                            <div className={`w-2 h-2 rounded-full shrink-0 ${p.status === 'active' ? 'bg-green-500' : 'bg-gray-300'}`} />
+                            <span className="truncate">{p.name}</span>
+                          </button>
+                        </div>
+                      )}
+                    </Draggable>
+                  ))}
+                  {provided.placeholder}
+                </div>
+              )}
+            </Droppable>
+          </DragDropContext>
           
           <div className="pt-8 pb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3">
             Management

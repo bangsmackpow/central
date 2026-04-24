@@ -22,6 +22,7 @@ export interface Project {
   codingAgents?: string | null;
   primaryModel?: string | null;
   agentInstructionsUrl?: string | null;
+  order: number;
 
   createdAt: Date;
   updatedAt: Date;

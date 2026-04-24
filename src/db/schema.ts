@@ -81,6 +81,7 @@ export const projects = sqliteTable("projects", {
   codingAgents: text("coding_agents"), // comma separated or JSON
   primaryModel: text("primary_model"),
   agentInstructionsUrl: text("agent_instructions_url"),
+  order: integer("order").notNull().default(0),
 
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),

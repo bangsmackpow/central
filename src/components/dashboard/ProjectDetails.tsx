@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   Link as LinkIcon, 
   ExternalLink, 
@@ -11,13 +11,31 @@ import {
   MessageSquare,
   Activity,
   ShieldCheck,
-  Code
+  Code,
+  Save,
+  Loader2
 } from "lucide-react";
-import { Project } from "../../types";
+import { Project, Settings } from "../../types";
 import MarkdownEditor from "../editor/MarkdownEditor";
 
-export default function ProjectDetails({ project }: { project: Project }) {
+export default function ProjectDetails({ project: initialProject }: { project: Project }) {
+  const [project, setProject] = useState<Project>(initialProject);
   const [activeTab, setActiveTab] = useState<"overview" | "docs" | "intelligence">("overview");
+  const [settings, setSettings] = useState<Partial<Settings>>({});
+  const [isEditingIntel, setIsEditingIntelligence] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setProject(initialProject);
+    fetch("/api/settings").then(res => res.json()).then(data => setSettings(data));
+  }, [initialProject]);
+
+  // Cloudflare Detection Logic
+  const isCloudflare = 
+    project.isCloudflareProject || 
+    project.prodUrl?.includes(".pages.dev") || 
+    project.prodUrl?.includes(".workers.dev") ||
+    !!project.cloudflareProjectName;
 
   // Helper for generating GitHub links
   const getGithubLink = (path: string) => {
@@ -27,13 +45,35 @@ export default function ProjectDetails({ project }: { project: Project }) {
 
   // Helper for generating Cloudflare dashboard links
   const getCloudflareLink = (type: string) => {
-    const accountId = "0e528c886015cce349076fb7db222a88"; // Ideally from settings, but hardcoded based on previous turns
+    const accountId = settings.cloudflareAccountId;
+    if (!accountId) return null;
     if (type === "pages") {
       return `https://dash.cloudflare.com/${accountId}/pages/view/${project.cloudflareProjectName || project.name}`;
     }
     if (type === "d1") return `https://dash.cloudflare.com/${accountId}/d1`;
     if (type === "r2") return `https://dash.cloudflare.com/${accountId}/r2/overview`;
     return null;
+  };
+
+  const handleUpdateProject = async () => {
+    setSaving(true);
+    const res = await fetch(`/api/projects/${project.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        codingAgents: project.codingAgents,
+        primaryModel: project.primaryModel,
+        agentInstructionsUrl: project.agentInstructionsUrl,
+        prodUrl: project.prodUrl,
+        stagingUrl: project.stagingUrl,
+        isCloudflareProject: project.isCloudflareProject,
+        cloudflareProjectName: project.cloudflareProjectName,
+      }),
+    });
+    if (res.ok) {
+      setIsEditingIntelligence(false);
+    }
+    setSaving(false);
   };
 
   return (
@@ -94,18 +134,26 @@ export default function ProjectDetails({ project }: { project: Project }) {
                 </div>
               </section>
 
-              {/* Cloudflare Auto-Links */}
-              <section>
-                <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-                  <Cloud className="w-5 h-5 text-orange-500" />
-                  Cloudflare Infrastructure
-                </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <QuickLinkItem label="Pages Deployment" url={getCloudflareLink("pages")} icon={<Cloud />} />
-                  <QuickLinkItem label="D1 Database" url={getCloudflareLink("d1")} icon={<Layout />} />
-                  <QuickLinkItem label="R2 Storage" url={getCloudflareLink("r2")} icon={<Layout />} />
-                </div>
-              </section>
+              {/* Cloudflare Auto-Links (Dynamic) */}
+              {isCloudflare && (
+                <section>
+                  <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+                    <Cloud className="w-5 h-5 text-orange-500" />
+                    Cloudflare Infrastructure
+                  </h2>
+                  {!settings.cloudflareAccountId ? (
+                    <div className="p-4 bg-orange-50 border border-orange-200 rounded-md text-orange-800 text-sm">
+                      Please configure your <strong>Cloudflare Account ID</strong> in the Admin Panel to enable deep-linking.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <QuickLinkItem label="Pages Deployment" url={getCloudflareLink("pages")} icon={<Cloud />} />
+                      <QuickLinkItem label="D1 Database" url={getCloudflareLink("d1")} icon={<Layout />} />
+                      <QuickLinkItem label="R2 Storage" url={getCloudflareLink("r2")} icon={<Layout />} />
+                    </div>
+                  )}
+                </section>
+              )}
 
               {/* Custom Links */}
               <section>
@@ -131,12 +179,14 @@ export default function ProjectDetails({ project }: { project: Project }) {
                 <div className="space-y-4 text-sm">
                   <div className="flex justify-between border-b pb-2">
                     <span className="text-muted-foreground">GitHub Repo</span>
-                    <span className="font-mono text-xs">{project.githubRepoFullName || "Not linked"}</span>
+                    <span className="font-mono text-xs truncate max-w-[150px]">{project.githubRepoFullName || "Not linked"}</span>
                   </div>
-                  <div className="flex justify-between border-b pb-2">
-                    <span className="text-muted-foreground">CF Name</span>
-                    <span className="font-mono text-xs">{project.cloudflareProjectName || "Not set"}</span>
-                  </div>
+                  {isCloudflare && (
+                    <div className="flex justify-between border-b pb-2">
+                      <span className="text-muted-foreground">CF Name</span>
+                      <span className="font-mono text-xs">{project.cloudflareProjectName || project.name}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Updated</span>
                     <span>{new Date(project.updatedAt).toLocaleDateString()}</span>
@@ -151,28 +201,63 @@ export default function ProjectDetails({ project }: { project: Project }) {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2 space-y-8">
               <section className="bg-card border rounded-lg p-6">
-                <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
-                  <Cpu className="w-5 h-5 text-purple-500" />
-                  Agent Intelligence Stack
-                </h2>
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-xl font-semibold flex items-center gap-2">
+                    <Cpu className="w-5 h-5 text-purple-500" />
+                    Agent Intelligence Stack
+                  </h2>
+                  <button 
+                    onClick={() => isEditingIntel ? handleUpdateProject() : setIsEditingIntelligence(true)}
+                    className="text-sm font-bold text-primary flex items-center gap-1"
+                  >
+                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : isEditingIntel ? <Save className="w-4 h-4" /> : <SettingsIcon className="w-4 h-4" />}
+                    {isEditingIntel ? "Save Changes" : "Edit Config"}
+                  </button>
+                </div>
+                
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="space-y-2">
                     <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Coding Agents</label>
-                    <div className="p-3 bg-muted rounded-md font-medium">
-                      {project.codingAgents || "Not documented"}
-                    </div>
+                    {isEditingIntel ? (
+                      <input 
+                        className="w-full p-2 border rounded-md text-sm"
+                        value={project.codingAgents || ""}
+                        onChange={(e) => setProject({ ...project, codingAgents: e.target.value })}
+                        placeholder="e.g. Gemini, OpenCode"
+                      />
+                    ) : (
+                      <div className="p-3 bg-muted rounded-md font-medium">
+                        {project.codingAgents || "Not documented"}
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Primary AI Model</label>
-                    <div className="p-3 bg-muted rounded-md font-medium">
-                      {project.primaryModel || "Not documented"}
-                    </div>
+                    {isEditingIntel ? (
+                      <input 
+                        className="w-full p-2 border rounded-md text-sm"
+                        value={project.primaryModel || ""}
+                        onChange={(e) => setProject({ ...project, primaryModel: e.target.value })}
+                        placeholder="e.g. GPT-4o, Claude 3.5 Sonnet"
+                      />
+                    ) : (
+                      <div className="p-3 bg-muted rounded-md font-medium">
+                        {project.primaryModel || "Not documented"}
+                      </div>
+                    )}
                   </div>
                 </div>
                 
                 <div className="mt-8 space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Agent Instructions / Prompts</label>
-                  {project.agentInstructionsUrl ? (
+                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Agent Instructions / Prompts (URL)</label>
+                  {isEditingIntel ? (
+                    <input 
+                      className="w-full p-2 border rounded-md text-sm"
+                      value={project.agentInstructionsUrl || ""}
+                      onChange={(e) => setProject({ ...project, agentInstructionsUrl: e.target.value })}
+                      placeholder="https://github.com/.../docs/PROMPTS.md"
+                    />
+                  ) : project.agentInstructionsUrl ? (
                     <a href={project.agentInstructionsUrl} target="_blank" rel="noreferrer" className="flex items-center justify-between p-4 border rounded-md hover:bg-muted transition-colors">
                       <span className="font-medium">System Instructions & Prompts</span>
                       <ExternalLink className="w-4 h-4" />
@@ -183,10 +268,49 @@ export default function ProjectDetails({ project }: { project: Project }) {
                     </div>
                   )}
                 </div>
-                
-                <button className="mt-8 w-full py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90">
-                  Edit Intelligence Config
-                </button>
+
+                {isEditingIntel && (
+                  <div className="mt-8 pt-8 border-t space-y-4">
+                    <h3 className="font-bold text-sm uppercase text-muted-foreground">External Links & Deployment</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium">Production URL</label>
+                        <input 
+                          className="w-full p-2 border rounded-md text-sm"
+                          value={project.prodUrl || ""}
+                          onChange={(e) => setProject({ ...project, prodUrl: e.target.value })}
+                          placeholder="https://myapp.pages.dev"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium">Staging URL</label>
+                        <input 
+                          className="w-full p-2 border rounded-md text-sm"
+                          value={project.stagingUrl || ""}
+                          onChange={(e) => setProject({ ...project, stagingUrl: e.target.value })}
+                          placeholder="https://staging.myapp.com"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2 pt-4">
+                        <input 
+                          type="checkbox"
+                          id="isCf"
+                          checked={!!project.isCloudflareProject}
+                          onChange={(e) => setProject({ ...project, isCloudflareProject: e.target.checked })}
+                        />
+                        <label htmlFor="isCf" className="text-sm font-medium">Force Cloudflare Links</label>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium">CF Project Name (if different)</label>
+                        <input 
+                          className="w-full p-2 border rounded-md text-sm"
+                          value={project.cloudflareProjectName || ""}
+                          onChange={(e) => setProject({ ...project, cloudflareProjectName: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </section>
             </div>
           </div>
