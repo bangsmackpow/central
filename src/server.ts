@@ -6,6 +6,7 @@ import { getAuth } from "./auth";
 import { getDb } from "./db";
 import { projects, quickLinks, settings } from "./db/schema";
 import { Bindings, Variables } from "./types";
+import { encrypt, decrypt } from "./lib/crypto";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -36,7 +37,6 @@ api.get("/settings", async (c) => {
   const db = getDb(c.env.DB);
   const user = c.get("user");
   
-  // Use standard select to avoid relational API alias issues on D1
   const userSettings = await db.select()
     .from(settings)
     .where(eq(settings.userId, user.id))
@@ -63,17 +63,29 @@ api.post("/settings", zValidator("json", settingsSchema), async (c) => {
   const db = getDb(c.env.DB);
   const user = c.get("user");
   const body = c.req.valid("json");
+  const masterKey = c.env.MASTER_ENCRYPTION_KEY;
+
+  if (!masterKey) {
+    return c.json({ error: "Server encryption not configured" }, 500);
+  }
 
   const existing = await db.select()
     .from(settings)
     .where(eq(settings.userId, user.id))
     .get();
 
+  let finalPat = body.githubPat;
+  if (finalPat) {
+    finalPat = await encrypt(finalPat, masterKey);
+  } else if (existing) {
+    finalPat = existing.githubPat;
+  }
+
   if (existing) {
     await db.update(settings)
       .set({
         githubUsername: body.githubUsername ?? existing.githubUsername,
-        githubPat: body.githubPat ?? existing.githubPat,
+        githubPat: finalPat,
         cloudflareAccountId: body.cloudflareAccountId ?? existing.cloudflareAccountId,
       })
       .where(eq(settings.userId, user.id));
@@ -82,7 +94,7 @@ api.post("/settings", zValidator("json", settingsSchema), async (c) => {
       id: crypto.randomUUID(),
       userId: user.id,
       githubUsername: body.githubUsername,
-      githubPat: body.githubPat,
+      githubPat: finalPat,
       cloudflareAccountId: body.cloudflareAccountId,
     });
   }
@@ -95,6 +107,8 @@ api.post("/settings", zValidator("json", settingsSchema), async (c) => {
 api.get("/github/repos", async (c) => {
   const db = getDb(c.env.DB);
   const user = c.get("user");
+  const masterKey = c.env.MASTER_ENCRYPTION_KEY;
+
   const userSettings = await db.select()
     .from(settings)
     .where(eq(settings.userId, user.id))
@@ -104,16 +118,28 @@ api.get("/github/repos", async (c) => {
     return c.json({ error: "GitHub PAT not configured" }, 400);
   }
 
+  let pat = userSettings.githubPat;
+  
+  // Attempt to decrypt if it looks like encrypted data (contains a colon)
+  if (pat.includes(":")) {
+    try {
+      pat = await decrypt(pat, masterKey);
+    } catch (e) {
+      return c.json({ error: "Failed to decrypt GitHub PAT" }, 500);
+    }
+  }
+
   const response = await fetch("https://api.github.com/user/repos?per_page=100&sort=updated", {
     headers: {
-      "Authorization": `token ${userSettings.githubPat}`,
+      "Authorization": `token ${pat}`,
       "Accept": "application/vnd.github.v3+json",
       "User-Agent": "Central-Dashboard",
     },
   });
 
   if (!response.ok) {
-    return c.json({ error: "Failed to fetch from GitHub" }, response.status);
+    const errorBody = await response.text();
+    return c.json({ error: "Failed to fetch from GitHub", details: errorBody }, response.status);
   }
 
   const repos = await response.json();
@@ -126,8 +152,6 @@ api.get("/projects", async (c) => {
   const db = getDb(c.env.DB);
   const user = c.get("user");
   
-  // Use relational API for project list because it handles the with: quickLinks nicely
-  // If this also fails, we'll need to manually join.
   try {
     const projectsList = await db.query.projects.findMany({
       where: eq(projects.userId, user.id),
@@ -135,7 +159,6 @@ api.get("/projects", async (c) => {
     });
     return c.json(projectsList);
   } catch (e: any) {
-    // Fallback if relational API fails
     const projectsList = await db.select().from(projects).where(eq(projects.userId, user.id));
     return c.json(projectsList);
   }

@@ -63,6 +63,7 @@ export type Bindings = {
   BUCKET: R2Bucket;
   BETTER_AUTH_SECRET: string;
   BETTER_AUTH_URL: string;
+  MASTER_ENCRYPTION_KEY: string;
   ASSETS: { fetch: typeof fetch };
 };
 
