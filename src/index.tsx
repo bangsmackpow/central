@@ -10,8 +10,14 @@ import { Bindings, Variables } from "./types";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-// Better Auth routes
-app.on(["POST", "GET"], "/api/auth/**", async (c) => {
+// Debug logging
+app.use("*", async (c, next) => {
+  console.log(`[${c.req.method}] ${c.req.url}`);
+  await next();
+});
+
+// Better Auth routes - use app.all to catch everything
+app.all("/api/auth/*", async (c) => {
   const auth = getAuth(c.env.DB, c.env);
   return auth.handler(c.req.raw);
 });
@@ -26,7 +32,6 @@ api.use("*", async (c, next) => {
   if (!session) {
     return c.json({ error: "Unauthorized" }, 401);
   }
-  // Type cast for internal use
   c.set("user", session.user as any);
   c.set("session", session.session as any);
   await next();
@@ -85,7 +90,7 @@ api.get("/projects/:id/docs", async (c) => {
 });
 
 const docsSchema = z.object({
-  content: z.string().max(100000), // 100kb limit
+  content: z.string().max(100000),
 });
 
 api.post("/projects/:id/docs", zValidator("json", docsSchema), async (c) => {
