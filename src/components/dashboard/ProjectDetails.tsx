@@ -39,32 +39,30 @@ export default function ProjectDetails({ project: initialProject }: { project: P
     fetch("/api/settings").then(res => res.json()).then(data => setSettings(data));
   }, [initialProject]);
 
-  // Helper to get property value handling both camelCase and snake_case fallback
-  const getProp = (obj: any, camel: string, snake: string) => {
-    return obj[camel] !== undefined ? obj[camel] : obj[snake];
+  // Helper to normalize properties
+  const getVal = (obj: any, key: string) => {
+    const snake = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+    return obj[key] !== undefined ? obj[key] : obj[snake];
   };
 
-  const cfD1Id = getProp(project, 'cloudflareD1Id', 'cloudflare_d1_id');
-  const cfR2Bucket = getProp(project, 'cloudflareR2BucketName', 'cloudflare_r2_bucket_name');
-  const cfProjName = getProp(project, 'cloudflareProjectName', 'cloudflare_project_name');
-  const prodUrl = getProp(project, 'prodUrl', 'prod_url');
-  const isCfManual = getProp(project, 'isCloudflareProject', 'is_cloudflare_project');
-  const githubRepo = getProp(project, 'githubRepoFullName', 'github_repo_full_name');
+  const cfD1Id = getVal(project, 'cloudflareD1Id');
+  const cfR2Bucket = getVal(project, 'cloudflareR2BucketName');
+  const cfProjName = getVal(project, 'cloudflareProjectName');
+  const prodUrl = getVal(project, 'prodUrl');
+  const isCfManual = getVal(project, 'isCloudflareProject');
+  const githubRepo = getVal(project, 'githubRepoFullName');
 
-  // Cloudflare Detection Logic
   const isCloudflare = 
     isCfManual || 
     prodUrl?.includes(".pages.dev") || 
     prodUrl?.includes(".workers.dev") ||
     !!cfProjName;
 
-  // Helper for generating GitHub links
   const getGithubLink = (path: string) => {
     if (!githubRepo) return null;
     return `https://github.com/${githubRepo}${path}`;
   };
 
-  // Helper for generating Cloudflare dashboard links
   const getCloudflareLink = (type: string) => {
     const accountId = settings.cloudflareAccountId;
     if (!accountId) return null;
@@ -89,20 +87,22 @@ export default function ProjectDetails({ project: initialProject }: { project: P
 
   const handleUpdateProject = async () => {
     setSaving(true);
+    const updateData = {
+      codingAgents: project.codingAgents,
+      primaryModel: project.primaryModel,
+      agentInstructionsUrl: project.agentInstructionsUrl,
+      prodUrl: prodUrl,
+      stagingUrl: project.stagingUrl,
+      isCloudflareProject: Boolean(isCfManual),
+      cloudflareProjectName: cfProjName,
+      cloudflareD1Id: cfD1Id,
+      cloudflareR2BucketName: cfR2Bucket,
+    };
+
     const res = await fetch(`/api/projects/${project.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        codingAgents: project.codingAgents,
-        primaryModel: project.primaryModel,
-        agentInstructionsUrl: project.agentInstructionsUrl,
-        prodUrl: prodUrl,
-        stagingUrl: project.stagingUrl,
-        isCloudflareProject: isCfManual,
-        cloudflareProjectName: cfProjName,
-        cloudflareD1Id: cfD1Id,
-        cloudflareR2BucketName: cfR2Bucket,
-      }),
+      body: JSON.stringify(updateData),
     });
     if (res.ok) {
       setIsEditingIntelligence(false);
@@ -121,9 +121,9 @@ export default function ProjectDetails({ project: initialProject }: { project: P
         setProject({
           ...project,
           ...data.meta,
-          updatedAt: new Date()
+          updatedAt: new Date().toISOString()
         });
-        alert("Synced successfully with GitHub!");
+        alert("Synced successfully!");
       } else {
         alert(data.error || "Sync failed");
       }
@@ -153,7 +153,7 @@ export default function ProjectDetails({ project: initialProject }: { project: P
   };
 
   const handleDeleteLink = async (linkId: string) => {
-    if (!confirm("Are you sure you want to delete this link?")) return;
+    if (!confirm("Delete this link?")) return;
     const res = await fetch(`/api/projects/${project.id}/links/${linkId}`, {
       method: "DELETE",
     });
@@ -209,7 +209,6 @@ export default function ProjectDetails({ project: initialProject }: { project: P
         {activeTab === "overview" && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2 space-y-8">
-              {/* GitHub Auto-Links */}
               <section>
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-xl font-semibold flex items-center gap-2">
@@ -235,7 +234,6 @@ export default function ProjectDetails({ project: initialProject }: { project: P
                 </div>
               </section>
 
-              {/* Cloudflare Auto-Links (Dynamic) */}
               {isCloudflare && (
                 <section>
                   <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
@@ -244,7 +242,7 @@ export default function ProjectDetails({ project: initialProject }: { project: P
                   </h2>
                   {!settings.cloudflareAccountId ? (
                     <div className="p-4 bg-orange-50 border border-orange-200 rounded-md text-orange-800 text-sm">
-                      Please configure your <strong>Cloudflare Account ID</strong> in the Admin Panel to enable deep-linking.
+                      Configure your Account ID in Admin Panel.
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -256,7 +254,6 @@ export default function ProjectDetails({ project: initialProject }: { project: P
                 </section>
               )}
 
-              {/* Custom Links */}
               <section>
                 <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
                   <LinkIcon className="w-5 h-5" />
@@ -277,36 +274,32 @@ export default function ProjectDetails({ project: initialProject }: { project: P
                   
                   {showAddLink ? (
                     <form onSubmit={handleAddLink} className="p-4 rounded-lg border bg-card space-y-3">
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs font-bold uppercase text-muted-foreground">New Link</span>
-                        <button type="button" onClick={() => setShowAddLink(false)}><X className="w-4 h-4 text-muted-foreground" /></button>
-                      </div>
                       <input 
                         className="w-full p-2 border rounded-md text-sm"
-                        placeholder="Label (e.g. Wiki)"
+                        placeholder="Label"
                         value={newLink.label}
                         onChange={(e) => setNewLink({ ...newLink, label: e.target.value })}
                         required
                       />
                       <input 
                         className="w-full p-2 border rounded-md text-sm"
-                        placeholder="URL (https://...)"
+                        placeholder="URL"
                         type="url"
                         value={newLink.url}
                         onChange={(e) => setNewLink({ ...newLink, url: e.target.value })}
                         required
                       />
-                      <button type="submit" className="w-full py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium">
-                        Add Link
-                      </button>
+                      <div className="flex gap-2">
+                        <button type="submit" className="flex-1 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium">Add</button>
+                        <button type="button" onClick={() => setShowAddLink(false)} className="px-4 py-2 border rounded-md text-sm">Cancel</button>
+                      </div>
                     </form>
                   ) : (
                     <button 
                       onClick={() => setShowAddLink(true)}
-                      className="flex items-center justify-center gap-2 p-4 rounded-lg border-2 border-dashed text-muted-foreground hover:border-primary hover:text-primary transition-all"
+                      className="flex items-center justify-center gap-2 p-4 rounded-lg border-2 border-dashed text-muted-foreground hover:border-primary transition-all"
                     >
-                      <Plus className="w-4 h-4" />
-                      Add Custom Link
+                      <Plus className="w-4 h-4" /> Add Link
                     </button>
                   )}
                 </div>
@@ -329,7 +322,7 @@ export default function ProjectDetails({ project: initialProject }: { project: P
                   )}
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Updated</span>
-                    <span>{new Date(project.updatedAt).toLocaleDateString()}</span>
+                    <span>{new Date(getVal(project, 'updatedAt')).toLocaleDateString()}</span>
                   </div>
                 </div>
               </section>
@@ -344,127 +337,54 @@ export default function ProjectDetails({ project: initialProject }: { project: P
                 <div className="flex items-center justify-between mb-6">
                   <h2 className="text-xl font-semibold flex items-center gap-2">
                     <Cpu className="w-5 h-5 text-purple-500" />
-                    Agent Intelligence Stack
+                    Intelligence Stack
                   </h2>
                   <button 
                     onClick={() => isEditingIntel ? handleUpdateProject() : setIsEditingIntelligence(true)}
                     className="text-sm font-bold text-primary flex items-center gap-1"
                   >
                     {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : isEditingIntel ? <Save className="w-4 h-4" /> : <SettingsIcon className="w-4 h-4" />}
-                    {isEditingIntel ? "Save Changes" : "Edit Config"}
+                    {isEditingIntel ? "Save" : "Edit"}
                   </button>
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="space-y-2">
-                    <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Coding Agents</label>
+                    <label className="text-xs font-bold uppercase text-muted-foreground">Coding Agents</label>
                     {isEditingIntel ? (
-                      <input 
-                        className="w-full p-2 border rounded-md text-sm"
-                        value={project.codingAgents || ""}
-                        onChange={(e) => setProject({ ...project, codingAgents: e.target.value })}
-                        placeholder="e.g. Gemini, OpenCode"
-                      />
+                      <input className="w-full p-2 border rounded-md text-sm" value={project.codingAgents || ""} onChange={(e) => setProject({ ...project, codingAgents: e.target.value })} />
                     ) : (
-                      <div className="p-3 bg-muted rounded-md font-medium">
-                        {project.codingAgents || "Not documented"}
-                      </div>
+                      <div className="p-3 bg-muted rounded-md font-medium">{project.codingAgents || "None"}</div>
                     )}
                   </div>
                   <div className="space-y-2">
-                    <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Primary AI Model</label>
+                    <label className="text-xs font-bold uppercase text-muted-foreground">AI Model</label>
                     {isEditingIntel ? (
-                      <input 
-                        className="w-full p-2 border rounded-md text-sm"
-                        value={project.primaryModel || ""}
-                        onChange={(e) => setProject({ ...project, primaryModel: e.target.value })}
-                        placeholder="e.g. GPT-4o, Claude 3.5 Sonnet"
-                      />
+                      <input className="w-full p-2 border rounded-md text-sm" value={project.primaryModel || ""} onChange={(e) => setProject({ ...project, primaryModel: e.target.value })} />
                     ) : (
-                      <div className="p-3 bg-muted rounded-md font-medium">
-                        {project.primaryModel || "Not documented"}
-                      </div>
+                      <div className="p-3 bg-muted rounded-md font-medium">{project.primaryModel || "None"}</div>
                     )}
                   </div>
-                </div>
-                
-                <div className="mt-8 space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Agent Instructions / Prompts (URL)</label>
-                  {isEditingIntel ? (
-                    <input 
-                      className="w-full p-2 border rounded-md text-sm"
-                      value={project.agentInstructionsUrl || ""}
-                      onChange={(e) => setProject({ ...project, agentInstructionsUrl: e.target.value })}
-                      placeholder="https://github.com/.../docs/PROMPTS.md"
-                    />
-                  ) : project.agentInstructionsUrl ? (
-                    <a href={project.agentInstructionsUrl} target="_blank" rel="noreferrer" className="flex items-center justify-between p-4 border rounded-md hover:bg-muted transition-colors">
-                      <span className="font-medium">System Instructions & Prompts</span>
-                      <ExternalLink className="w-4 h-4" />
-                    </a>
-                  ) : (
-                    <div className="p-4 border-2 border-dashed rounded-md text-center text-muted-foreground italic text-sm">
-                      No instruction URL linked.
-                    </div>
-                  )}
                 </div>
 
                 {isEditingIntel && (
                   <div className="mt-8 pt-8 border-t space-y-4">
-                    <h3 className="font-bold text-sm uppercase text-muted-foreground">External Links & Deployment</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-1">
                         <label className="text-xs font-medium">Production URL</label>
-                        <input 
-                          className="w-full p-2 border rounded-md text-sm"
-                          value={prodUrl || ""}
-                          onChange={(e) => setProject({ ...project, prodUrl: e.target.value })}
-                          placeholder="https://myapp.pages.dev"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium">Staging URL</label>
-                        <input 
-                          className="w-full p-2 border rounded-md text-sm"
-                          value={project.stagingUrl || ""}
-                          onChange={(e) => setProject({ ...project, stagingUrl: e.target.value })}
-                          placeholder="https://staging.myapp.com"
-                        />
-                      </div>
-                      <div className="flex items-center gap-2 pt-4">
-                        <input 
-                          type="checkbox"
-                          id="isCf"
-                          checked={!!isCfManual}
-                          onChange={(e) => setProject({ ...project, isCloudflareProject: e.target.checked })}
-                        />
-                        <label htmlFor="isCf" className="text-sm font-medium">Force Cloudflare Links</label>
+                        <input className="w-full p-2 border rounded-md text-sm" value={prodUrl || ""} onChange={(e) => setProject({ ...project, prodUrl: e.target.value })} />
                       </div>
                       <div className="space-y-1">
                         <label className="text-xs font-medium">CF Project Name</label>
-                        <input 
-                          className="w-full p-2 border rounded-md text-sm"
-                          value={cfProjName || ""}
-                          onChange={(e) => setProject({ ...project, cloudflareProjectName: e.target.value })}
-                        />
+                        <input className="w-full p-2 border rounded-md text-sm" value={cfProjName || ""} onChange={(e) => setProject({ ...project, cloudflareProjectName: e.target.value })} />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium">D1 Database ID</label>
-                        <input 
-                          className="w-full p-2 border rounded-md text-sm font-mono"
-                          value={cfD1Id || ""}
-                          onChange={(e) => setProject({ ...project, cloudflareD1Id: e.target.value })}
-                          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                        />
+                        <label className="text-xs font-medium">D1 DB ID</label>
+                        <input className="w-full p-2 border rounded-md text-sm font-mono" value={cfD1Id || ""} onChange={(e) => setProject({ ...project, cloudflareD1Id: e.target.value })} />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium">R2 Bucket Name</label>
-                        <input 
-                          className="w-full p-2 border rounded-md text-sm"
-                          value={cfR2Bucket || ""}
-                          onChange={(e) => setProject({ ...project, cloudflareR2BucketName: e.target.value })}
-                          placeholder="my-bucket-name"
-                        />
+                        <label className="text-xs font-medium">R2 Bucket</label>
+                        <input className="w-full p-2 border rounded-md text-sm" value={cfR2Bucket || ""} onChange={(e) => setProject({ ...project, cloudflareR2BucketName: e.target.value })} />
                       </div>
                     </div>
                   </div>
@@ -474,9 +394,7 @@ export default function ProjectDetails({ project: initialProject }: { project: P
           </div>
         )}
 
-        {activeTab === "docs" && (
-          <MarkdownEditor projectId={project.id} />
-        )}
+        {activeTab === "docs" && <MarkdownEditor projectId={project.id} />}
       </div>
     </div>
   );
@@ -485,12 +403,7 @@ export default function ProjectDetails({ project: initialProject }: { project: P
 function QuickLinkItem({ label, url, icon }: { label: string, url: string | null, icon?: React.ReactNode }) {
   if (!url) return null;
   return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="flex items-center justify-between p-4 rounded-lg border bg-card hover:border-primary transition-colors group"
-    >
+    <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between p-4 rounded-lg border bg-card hover:border-primary transition-colors group">
       <div className="flex items-center gap-3">
         <div className="p-2 rounded bg-muted">
           {icon ? React.cloneElement(icon as React.ReactElement, { className: "w-4 h-4 text-primary" }) : <LinkIcon className="w-4 h-4 text-primary" />}
