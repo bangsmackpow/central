@@ -16,7 +16,10 @@ import {
   Loader2,
   RefreshCw,
   Database,
-  HardDrive
+  HardDrive,
+  Plus,
+  Trash2,
+  X
 } from "lucide-react";
 import { Project, Settings } from "../../types";
 import MarkdownEditor from "../editor/MarkdownEditor";
@@ -26,6 +29,8 @@ export default function ProjectDetails({ project: initialProject }: { project: P
   const [activeTab, setActiveTab] = useState<"overview" | "docs" | "intelligence">("overview");
   const [settings, setSettings] = useState<Partial<Settings>>({});
   const [isEditingIntel, setIsEditingIntelligence] = useState(false);
+  const [showAddLink, setShowAddLink] = useState(false);
+  const [newLink, setNewLink] = useState({ label: "", url: "" });
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
@@ -129,6 +134,37 @@ export default function ProjectDetails({ project: initialProject }: { project: P
     }
   };
 
+  const handleAddLink = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const res = await fetch(`/api/projects/${project.id}/links`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(newLink),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setProject({
+        ...project,
+        quickLinks: [...(project.quickLinks || []), { id: data.id, ...newLink }]
+      });
+      setNewLink({ label: "", url: "" });
+      setShowAddLink(false);
+    }
+  };
+
+  const handleDeleteLink = async (linkId: string) => {
+    if (!confirm("Are you sure you want to delete this link?")) return;
+    const res = await fetch(`/api/projects/${project.id}/links/${linkId}`, {
+      method: "DELETE",
+    });
+    if (res.ok) {
+      setProject({
+        ...project,
+        quickLinks: project.quickLinks.filter((l: any) => l.id !== linkId)
+      });
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       <header className="bg-card border-b p-6">
@@ -228,12 +264,51 @@ export default function ProjectDetails({ project: initialProject }: { project: P
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {(project.quickLinks || []).map((link: any, i: number) => (
-                    <QuickLinkItem key={i} label={link.label} url={link.url} />
+                    <div key={link.id || i} className="relative group/link">
+                      <QuickLinkItem label={link.label} url={link.url} />
+                      <button 
+                        onClick={() => handleDeleteLink(link.id)}
+                        className="absolute -top-2 -right-2 p-1.5 bg-destructive text-destructive-foreground rounded-full opacity-0 group-hover/link:opacity-100 transition-opacity shadow-lg"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
                   ))}
-                  <button className="flex items-center justify-center gap-2 p-4 rounded-lg border-2 border-dashed text-muted-foreground hover:border-primary hover:text-primary transition-all">
-                    <Plus className="w-4 h-4" />
-                    Add Custom Link
-                  </button>
+                  
+                  {showAddLink ? (
+                    <form onSubmit={handleAddLink} className="p-4 rounded-lg border bg-card space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs font-bold uppercase text-muted-foreground">New Link</span>
+                        <button type="button" onClick={() => setShowAddLink(false)}><X className="w-4 h-4 text-muted-foreground" /></button>
+                      </div>
+                      <input 
+                        className="w-full p-2 border rounded-md text-sm"
+                        placeholder="Label (e.g. Wiki)"
+                        value={newLink.label}
+                        onChange={(e) => setNewLink({ ...newLink, label: e.target.value })}
+                        required
+                      />
+                      <input 
+                        className="w-full p-2 border rounded-md text-sm"
+                        placeholder="URL (https://...)"
+                        type="url"
+                        value={newLink.url}
+                        onChange={(e) => setNewLink({ ...newLink, url: e.target.value })}
+                        required
+                      />
+                      <button type="submit" className="w-full py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium">
+                        Add Link
+                      </button>
+                    </form>
+                  ) : (
+                    <button 
+                      onClick={() => setShowAddLink(true)}
+                      className="flex items-center justify-center gap-2 p-4 rounded-lg border-2 border-dashed text-muted-foreground hover:border-primary hover:text-primary transition-all"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add Custom Link
+                    </button>
+                  )}
                 </div>
               </section>
             </div>
@@ -424,11 +499,5 @@ function QuickLinkItem({ label, url, icon }: { label: string, url: string | null
       </div>
       <ExternalLink className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
     </a>
-  );
-}
-
-function Plus({ className }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M5 12h14"/><path d="M12 5v14"/></svg>
   );
 }

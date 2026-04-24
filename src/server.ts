@@ -185,7 +185,7 @@ api.get("/projects", async (c) => {
       with: { quickLinks: true },
       orderBy: [asc(projects.order)],
     });
-    return c.json(projectsList.map(mapProject));
+    return c.json(projectsList.map(p => ({ ...mapProject(p), quickLinks: p.quickLinks })));
   } catch (e: any) {
     const rawList = await db.select().from(projects).where(eq(projects.userId, user.id)).orderBy(asc(projects.order));
     return c.json(rawList.map(mapProject));
@@ -269,7 +269,6 @@ api.post("/projects/:id/sync", async (c) => {
   const id = c.req.param("id");
   const masterKey = c.env.MASTER_ENCRYPTION_KEY;
 
-  // Fetch and normalize local project data
   const rawProject = await db.select().from(projects).where(and(eq(projects.id, id), eq(projects.userId, user.id))).get();
   if (!rawProject) return c.json({ error: "Project not found" }, 404);
   const project = mapProject(rawProject);
@@ -292,9 +291,52 @@ api.post("/projects/:id/sync", async (c) => {
       cloudflareR2BucketName: meta.cloudflareR2BucketName || project.cloudflareR2BucketName,
       updatedAt: new Date(),
     })
-    .where(eq(projects.id, id)); // Simplified where to avoid D1 table-prefix issues
+    .where(eq(projects.id, id));
 
   return c.json({ success: true, meta });
+});
+
+// --- Quick Link Endpoints ---
+
+const linkSchema = z.object({
+  label: z.string().min(1).max(50),
+  url: z.string().url(),
+});
+
+api.post("/projects/:id/links", zValidator("json", linkSchema), async (c) => {
+  const db = getDb(c.env.DB);
+  const user = c.get("user");
+  const projectId = c.req.param("id");
+  const body = c.req.valid("json");
+
+  // Verify project ownership
+  const project = await db.select().from(projects).where(and(eq(projects.id, projectId), eq(projects.userId, user.id))).get();
+  if (!project) return c.json({ error: "Unauthorized" }, 401);
+
+  const id = crypto.randomUUID();
+  await db.insert(quickLinks).values({
+    id,
+    projectId,
+    label: body.label,
+    url: body.url,
+    order: 0,
+  });
+
+  return c.json({ id, success: true });
+});
+
+api.delete("/projects/:projectId/links/:linkId", async (c) => {
+  const db = getDb(c.env.DB);
+  const user = c.get("user");
+  const { projectId, linkId } = c.req.param();
+
+  // Verify project ownership
+  const project = await db.select().from(projects).where(and(eq(projects.id, projectId), eq(projects.userId, user.id))).get();
+  if (!project) return c.json({ error: "Unauthorized" }, 401);
+
+  await db.delete(quickLinks).where(and(eq(quickLinks.id, linkId), eq(quickLinks.projectId, projectId)));
+
+  return c.json({ success: true });
 });
 
 api.patch("/projects/reorder", zValidator("json", z.object({
