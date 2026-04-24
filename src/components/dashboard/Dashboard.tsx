@@ -1,23 +1,27 @@
 import React, { useEffect, useState } from "react";
-import { LogOut, Folder, Plus } from "lucide-react";
+import { LogOut, Folder, Plus, Settings as SettingsIcon } from "lucide-react";
 import { authClient } from "../../lib/auth-client";
 import { Project, User } from "../../types";
 import ProjectCard from "./ProjectCard";
 import ProjectDetails from "./ProjectDetails";
+import AdminPanel from "../admin/AdminPanel";
 
 export default function Dashboard({ user }: { user: User }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<"dashboard" | "admin">("dashboard");
 
   useEffect(() => {
-    fetch("/api/projects")
-      .then((res) => res.json())
-      .then((data) => {
-        setProjects(data);
-        setLoading(false);
-      });
-  }, []);
+    if (view === "dashboard") {
+      fetch("/api/projects")
+        .then((res) => res.json())
+        .then((data) => {
+          setProjects(data);
+          setLoading(false);
+        });
+    }
+  }, [view]);
 
   const handleLogout = async () => {
     await authClient.signOut();
@@ -34,8 +38,8 @@ export default function Dashboard({ user }: { user: User }) {
         </div>
         <nav className="flex-1 overflow-y-auto p-4 space-y-1">
           <button
-            onClick={() => setSelectedProject(null)}
-            className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${!selectedProject ? 'bg-secondary text-secondary-foreground' : 'hover:bg-muted'}`}
+            onClick={() => { setView("dashboard"); setSelectedProject(null); }}
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${view === "dashboard" && !selectedProject ? 'bg-secondary text-secondary-foreground' : 'hover:bg-muted'}`}
           >
             Dashboard Overview
           </button>
@@ -45,16 +49,23 @@ export default function Dashboard({ user }: { user: User }) {
           {projects.map((p) => (
             <button
               key={p.id}
-              onClick={() => setSelectedProject(p)}
+              onClick={() => { setView("dashboard"); setSelectedProject(p); }}
               className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${selectedProject?.id === p.id ? 'bg-secondary text-secondary-foreground' : 'hover:bg-muted'}`}
             >
               <div className="w-2 h-2 rounded-full bg-green-500" />
-              {p.name}
+              <span className="truncate">{p.name}</span>
             </button>
           ))}
-          <button className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium text-muted-foreground hover:bg-muted transition-colors mt-4">
-            <Plus className="w-4 h-4" />
-            New Project
+          
+          <div className="pt-8 pb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3">
+            Management
+          </div>
+          <button
+            onClick={() => setView("admin")}
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${view === "admin" ? 'bg-secondary text-secondary-foreground' : 'hover:bg-muted text-muted-foreground'}`}
+          >
+            <SettingsIcon className="w-4 h-4" />
+            Admin Panel
           </button>
         </nav>
         <div className="p-4 border-t mt-auto">
@@ -74,7 +85,9 @@ export default function Dashboard({ user }: { user: User }) {
       </aside>
 
       <main className="flex-1 overflow-y-auto">
-        {selectedProject ? (
+        {view === "admin" ? (
+          <AdminPanel />
+        ) : selectedProject ? (
           <ProjectDetails project={selectedProject} />
         ) : (
           <div className="p-8">
@@ -90,7 +103,7 @@ export default function Dashboard({ user }: { user: User }) {
                 ))
               ) : projects.length === 0 ? (
                 <div className="col-span-full py-12 text-center border-2 border-dashed rounded-lg">
-                  <p className="text-muted-foreground">No projects found. Create your first one to get started.</p>
+                  <p className="text-muted-foreground">No projects found. Create your first one in the Admin Panel.</p>
                 </div>
               ) : (
                 projects.map((p) => (

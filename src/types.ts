@@ -1,9 +1,28 @@
 export interface Project {
   id: string;
+  userId: string;
   name: string;
   description: string | null;
   status: string;
   thumbnailUrl: string | null;
+  
+  // GitHub Integration
+  githubRepoId?: number | null;
+  githubRepoFullName?: string | null;
+  
+  // Cloudflare Integration
+  isCloudflareProject?: boolean | null;
+  cloudflareProjectName?: string | null;
+  
+  // Custom URLs
+  prodUrl?: string | null;
+  stagingUrl?: string | null;
+  
+  // AI / Agent Intelligence
+  codingAgents?: string | null;
+  primaryModel?: string | null;
+  agentInstructionsUrl?: string | null;
+
   createdAt: Date;
   updatedAt: Date;
   quickLinks?: QuickLink[];
@@ -29,6 +48,14 @@ export interface Session {
   userId: string;
   expiresAt: Date;
   token: string;
+}
+
+export interface Settings {
+  id: string;
+  userId: string;
+  githubPat?: string | null;
+  githubUsername?: string | null;
+  cloudflareAccountId?: string | null;
 }
 
 export type Bindings = {
