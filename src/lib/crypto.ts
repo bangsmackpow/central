@@ -6,8 +6,6 @@
 async function getEncryptionKey(secret: string): Promise<CryptoKey> {
   const encoder = new TextEncoder();
   const rawKey = encoder.encode(secret);
-  
-  // Hash the input secret to ensure it's exactly 256 bits for AES-256
   const hash = await crypto.subtle.digest("SHA-256", rawKey);
   
   return await crypto.subtle.importKey(
@@ -19,9 +17,26 @@ async function getEncryptionKey(secret: string): Promise<CryptoKey> {
   );
 }
 
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+function base64ToArrayBuffer(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
 /**
  * Encrypts a string using AES-GCM.
- * Returns format: "base64(iv):base64(ciphertext)"
  */
 export async function encrypt(text: string, masterKey: string): Promise<string> {
   const key = await getEncryptionKey(masterKey);
@@ -35,32 +50,22 @@ export async function encrypt(text: string, masterKey: string): Promise<string> 
     data
   );
 
-  const ivBase64 = btoa(String.fromCharCode(...iv));
-  const encryptedBase64 = btoa(String.fromCharCode(...new Uint8Array(encrypted)));
+  const ivBase64 = arrayBufferToBase64(iv);
+  const encryptedBase64 = arrayBufferToBase64(encrypted);
 
   return `${ivBase64}:${encryptedBase64}`;
 }
 
 /**
- * Decrypts a string encrypted with the format above.
+ * Decrypts a string.
  */
 export async function decrypt(encryptedData: string, masterKey: string): Promise<string> {
   const [ivBase64, ciphertextBase64] = encryptedData.split(":");
   if (!ivBase64 || !ciphertextBase64) throw new Error("Invalid encrypted data format");
 
   const key = await getEncryptionKey(masterKey);
-  
-  const iv = new Uint8Array(
-    atob(ivBase64)
-      .split("")
-      .map((c) => c.charCodeAt(0))
-  );
-  
-  const ciphertext = new Uint8Array(
-    atob(ciphertextBase64)
-      .split("")
-      .map((c) => c.charCodeAt(0))
-  );
+  const iv = base64ToArrayBuffer(ivBase64);
+  const ciphertext = base64ToArrayBuffer(ciphertextBase64);
 
   const decrypted = await crypto.subtle.decrypt(
     { name: "AES-GCM", iv },
@@ -68,6 +73,5 @@ export async function decrypt(encryptedData: string, masterKey: string): Promise
     ciphertext
   );
 
-  const decoder = new TextEncoder();
   return new TextDecoder().decode(decrypted);
 }
