@@ -22,7 +22,7 @@ import { Project, Settings } from "../../types";
 import MarkdownEditor from "../editor/MarkdownEditor";
 
 export default function ProjectDetails({ project: initialProject }: { project: Project }) {
-  const [project, setProject] = useState<Project>(initialProject);
+  const [project, setProject] = useState<any>(initialProject);
   const [activeTab, setActiveTab] = useState<"overview" | "docs" | "intelligence">("overview");
   const [settings, setSettings] = useState<Partial<Settings>>({});
   const [isEditingIntel, setIsEditingIntelligence] = useState(false);
@@ -34,17 +34,29 @@ export default function ProjectDetails({ project: initialProject }: { project: P
     fetch("/api/settings").then(res => res.json()).then(data => setSettings(data));
   }, [initialProject]);
 
+  // Helper to get property value handling both camelCase and snake_case fallback
+  const getProp = (obj: any, camel: string, snake: string) => {
+    return obj[camel] !== undefined ? obj[camel] : obj[snake];
+  };
+
+  const cfD1Id = getProp(project, 'cloudflareD1Id', 'cloudflare_d1_id');
+  const cfR2Bucket = getProp(project, 'cloudflareR2BucketName', 'cloudflare_r2_bucket_name');
+  const cfProjName = getProp(project, 'cloudflareProjectName', 'cloudflare_project_name');
+  const prodUrl = getProp(project, 'prodUrl', 'prod_url');
+  const isCfManual = getProp(project, 'isCloudflareProject', 'is_cloudflare_project');
+  const githubRepo = getProp(project, 'githubRepoFullName', 'github_repo_full_name');
+
   // Cloudflare Detection Logic
   const isCloudflare = 
-    project.isCloudflareProject || 
-    project.prodUrl?.includes(".pages.dev") || 
-    project.prodUrl?.includes(".workers.dev") ||
-    !!project.cloudflareProjectName;
+    isCfManual || 
+    prodUrl?.includes(".pages.dev") || 
+    prodUrl?.includes(".workers.dev") ||
+    !!cfProjName;
 
   // Helper for generating GitHub links
   const getGithubLink = (path: string) => {
-    if (!project.githubRepoFullName) return null;
-    return `https://github.com/${project.githubRepoFullName}${path}`;
+    if (!githubRepo) return null;
+    return `https://github.com/${githubRepo}${path}`;
   };
 
   // Helper for generating Cloudflare dashboard links
@@ -53,17 +65,17 @@ export default function ProjectDetails({ project: initialProject }: { project: P
     if (!accountId) return null;
     
     if (type === "pages") {
-      return `https://dash.cloudflare.com/${accountId}/pages/view/${project.cloudflareProjectName || project.name}`;
+      return `https://dash.cloudflare.com/${accountId}/pages/view/${cfProjName || project.name}`;
     }
     if (type === "d1") {
-      if (project.cloudflareD1Id) {
-        return `https://dash.cloudflare.com/${accountId}/workers/d1/databases/${project.cloudflareD1Id}/metrics`;
+      if (cfD1Id) {
+        return `https://dash.cloudflare.com/${accountId}/workers/d1/databases/${cfD1Id}/metrics`;
       }
       return `https://dash.cloudflare.com/${accountId}/workers/d1`;
     }
     if (type === "r2") {
-      if (project.cloudflareR2BucketName) {
-        return `https://dash.cloudflare.com/${accountId}/r2/buckets/${project.cloudflareR2BucketName}`;
+      if (cfR2Bucket) {
+        return `https://dash.cloudflare.com/${accountId}/r2/buckets/${cfR2Bucket}`;
       }
       return `https://dash.cloudflare.com/${accountId}/r2/overview`;
     }
@@ -79,12 +91,12 @@ export default function ProjectDetails({ project: initialProject }: { project: P
         codingAgents: project.codingAgents,
         primaryModel: project.primaryModel,
         agentInstructionsUrl: project.agentInstructionsUrl,
-        prodUrl: project.prodUrl,
+        prodUrl: prodUrl,
         stagingUrl: project.stagingUrl,
-        isCloudflareProject: project.isCloudflareProject,
-        cloudflareProjectName: project.cloudflareProjectName,
-        cloudflareD1Id: project.cloudflareD1Id,
-        cloudflareR2BucketName: project.cloudflareR2BucketName,
+        isCloudflareProject: isCfManual,
+        cloudflareProjectName: cfProjName,
+        cloudflareD1Id: cfD1Id,
+        cloudflareR2BucketName: cfR2Bucket,
       }),
     });
     if (res.ok) {
@@ -101,12 +113,11 @@ export default function ProjectDetails({ project: initialProject }: { project: P
       });
       const data = await res.json();
       if (res.ok) {
-        const updated = {
+        setProject({
           ...project,
           ...data.meta,
           updatedAt: new Date()
-        };
-        setProject(updated);
+        });
         alert("Synced successfully with GitHub!");
       } else {
         alert(data.error || "Sync failed");
@@ -132,13 +143,13 @@ export default function ProjectDetails({ project: initialProject }: { project: P
             <p className="text-muted-foreground mt-1">{project.description}</p>
           </div>
           <div className="flex gap-2">
-            {project.prodUrl && (
-              <a href={project.prodUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 py-1.5 bg-green-500/10 text-green-600 rounded-md text-sm font-medium hover:bg-green-500/20">
+            {prodUrl && (
+              <a href={prodUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 py-1.5 bg-green-500/10 text-green-600 rounded-md text-sm font-medium hover:bg-green-500/20">
                 <Globe className="w-4 h-4" /> Live
               </a>
             )}
-            {project.githubRepoFullName && (
-              <a href={`https://github.com/${project.githubRepoFullName}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 py-1.5 bg-muted rounded-md text-sm font-medium hover:bg-muted/80">
+            {githubRepo && (
+              <a href={`https://github.com/${githubRepo}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 py-1.5 bg-muted rounded-md text-sm font-medium hover:bg-muted/80">
                 <Github className="w-4 h-4" /> Repo
               </a>
             )}
@@ -169,7 +180,7 @@ export default function ProjectDetails({ project: initialProject }: { project: P
                     <Github className="w-5 h-5" />
                     GitHub Context
                   </h2>
-                  {project.githubRepoFullName && (
+                  {githubRepo && (
                     <button 
                       onClick={handleSyncWithGithub}
                       disabled={syncing}
@@ -216,7 +227,7 @@ export default function ProjectDetails({ project: initialProject }: { project: P
                   Project Links
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {(project.quickLinks || []).map((link, i) => (
+                  {(project.quickLinks || []).map((link: any, i: number) => (
                     <QuickLinkItem key={i} label={link.label} url={link.url} />
                   ))}
                   <button className="flex items-center justify-center gap-2 p-4 rounded-lg border-2 border-dashed text-muted-foreground hover:border-primary hover:text-primary transition-all">
@@ -233,12 +244,12 @@ export default function ProjectDetails({ project: initialProject }: { project: P
                 <div className="space-y-4 text-sm">
                   <div className="flex justify-between border-b pb-2">
                     <span className="text-muted-foreground">GitHub Repo</span>
-                    <span className="font-mono text-xs truncate max-w-[150px]">{project.githubRepoFullName || "Not linked"}</span>
+                    <span className="font-mono text-xs truncate max-w-[150px]">{githubRepo || "Not linked"}</span>
                   </div>
                   {isCloudflare && (
                     <div className="flex justify-between border-b pb-2">
                       <span className="text-muted-foreground">CF Name</span>
-                      <span className="font-mono text-xs">{project.cloudflareProjectName || project.name}</span>
+                      <span className="font-mono text-xs">{cfProjName || project.name}</span>
                     </div>
                   )}
                   <div className="flex justify-between">
@@ -331,7 +342,7 @@ export default function ProjectDetails({ project: initialProject }: { project: P
                         <label className="text-xs font-medium">Production URL</label>
                         <input 
                           className="w-full p-2 border rounded-md text-sm"
-                          value={project.prodUrl || ""}
+                          value={prodUrl || ""}
                           onChange={(e) => setProject({ ...project, prodUrl: e.target.value })}
                           placeholder="https://myapp.pages.dev"
                         />
@@ -349,7 +360,7 @@ export default function ProjectDetails({ project: initialProject }: { project: P
                         <input 
                           type="checkbox"
                           id="isCf"
-                          checked={!!project.isCloudflareProject}
+                          checked={!!isCfManual}
                           onChange={(e) => setProject({ ...project, isCloudflareProject: e.target.checked })}
                         />
                         <label htmlFor="isCf" className="text-sm font-medium">Force Cloudflare Links</label>
@@ -358,7 +369,7 @@ export default function ProjectDetails({ project: initialProject }: { project: P
                         <label className="text-xs font-medium">CF Project Name</label>
                         <input 
                           className="w-full p-2 border rounded-md text-sm"
-                          value={project.cloudflareProjectName || ""}
+                          value={cfProjName || ""}
                           onChange={(e) => setProject({ ...project, cloudflareProjectName: e.target.value })}
                         />
                       </div>
@@ -366,7 +377,7 @@ export default function ProjectDetails({ project: initialProject }: { project: P
                         <label className="text-xs font-medium">D1 Database ID</label>
                         <input 
                           className="w-full p-2 border rounded-md text-sm font-mono"
-                          value={project.cloudflareD1Id || ""}
+                          value={cfD1Id || ""}
                           onChange={(e) => setProject({ ...project, cloudflareD1Id: e.target.value })}
                           placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
                         />
@@ -375,7 +386,7 @@ export default function ProjectDetails({ project: initialProject }: { project: P
                         <label className="text-xs font-medium">R2 Bucket Name</label>
                         <input 
                           className="w-full p-2 border rounded-md text-sm"
-                          value={project.cloudflareR2BucketName || ""}
+                          value={cfR2Bucket || ""}
                           onChange={(e) => setProject({ ...project, cloudflareR2BucketName: e.target.value })}
                           placeholder="my-bucket-name"
                         />

@@ -5,7 +5,7 @@ import { zValidator } from "@hono/zod-validator";
 import { getAuth } from "./auth";
 import { getDb } from "./db";
 import { projects, quickLinks, settings } from "./db/schema";
-import { Bindings, Variables } from "./types";
+import { Bindings, Variables, Project } from "./types";
 import { encrypt, decrypt, isEncrypted } from "./lib/crypto";
 import { syncProjectMetadata } from "./lib/github";
 
@@ -31,6 +31,35 @@ api.use("*", async (c, next) => {
   c.set("session", session.session as any);
   await next();
 });
+
+/**
+ * Maps raw database rows to the camelCase Project interface.
+ * Essential when Drizzle's relational API is bypassed.
+ */
+function mapProject(row: any): Project {
+  return {
+    id: row.id,
+    userId: row.user_id || row.userId,
+    name: row.name,
+    description: row.description,
+    status: row.status,
+    thumbnailUrl: row.thumbnail_url || row.thumbnailUrl,
+    githubRepoId: row.github_repo_id || row.githubRepoId,
+    githubRepoFullName: row.github_repo_full_name || row.githubRepoFullName,
+    isCloudflareProject: Boolean(row.is_cloudflare_project || row.isCloudflareProject),
+    cloudflareProjectName: row.cloudflare_project_name || row.cloudflareProjectName,
+    cloudflareD1Id: row.cloudflare_d1_id || row.cloudflareD1Id,
+    cloudflareR2BucketName: row.cloudflare_r2_bucket_name || row.cloudflareR2BucketName,
+    prodUrl: row.prod_url || row.prodUrl,
+    stagingUrl: row.staging_url || row.stagingUrl,
+    codingAgents: row.coding_agents || row.codingAgents,
+    primaryModel: row.primary_model || row.primaryModel,
+    agentInstructionsUrl: row.agent_instructions_url || row.agentInstructionsUrl,
+    order: row.order ?? 0,
+    createdAt: new Date(row.created_at || row.createdAt),
+    updatedAt: new Date(row.updated_at || row.updatedAt),
+  };
+}
 
 // --- Settings Endpoints ---
 
@@ -67,7 +96,7 @@ api.post("/settings", zValidator("json", settingsSchema), async (c) => {
   const masterKey = c.env.MASTER_ENCRYPTION_KEY;
 
   if (!masterKey) {
-    return c.json({ error: "Server encryption (MASTER_ENCRYPTION_KEY) not configured in Cloudflare" }, 500);
+    return c.json({ error: "Server encryption not configured" }, 500);
   }
 
   const existing = await db.select()
@@ -120,12 +149,11 @@ api.get("/github/repos", async (c) => {
   }
 
   let pat = userSettings.githubPat;
-  
   if (isEncrypted(pat)) {
     try {
       pat = await decrypt(pat, masterKey);
     } catch (e) {
-      return c.json({ error: "Decryption failed. Please re-save your GitHub PAT in the Admin Panel." }, 500);
+      return c.json({ error: "Decryption failed" }, 500);
     }
   }
 
@@ -138,8 +166,7 @@ api.get("/github/repos", async (c) => {
   });
 
   if (!response.ok) {
-    const errorBody = await response.text();
-    return c.json({ error: "Failed to fetch from GitHub", details: errorBody }, response.status);
+    return c.json({ error: "Failed to fetch from GitHub" }, response.status);
   }
 
   const repos = await response.json();
@@ -160,8 +187,8 @@ api.get("/projects", async (c) => {
     });
     return c.json(projectsList);
   } catch (e: any) {
-    const projectsList = await db.select().from(projects).where(eq(projects.userId, user.id)).orderBy(asc(projects.order));
-    return c.json(projectsList);
+    const rawList = await db.select().from(projects).where(eq(projects.userId, user.id)).orderBy(asc(projects.order));
+    return c.json(rawList.map(mapProject));
   }
 });
 
@@ -189,7 +216,6 @@ api.post("/projects", zValidator("json", projectSchema), async (c) => {
   const masterKey = c.env.MASTER_ENCRYPTION_KEY;
 
   const userSettings = await db.select().from(settings).where(eq(settings.userId, user.id)).get();
-
   let finalData = { ...body };
 
   if (body.githubRepoFullName && userSettings?.githubPat) {
@@ -201,9 +227,7 @@ api.post("/projects", zValidator("json", projectSchema), async (c) => {
       finalData.cloudflareProjectName = meta.cloudflareProjectName;
       finalData.cloudflareD1Id = meta.cloudflareD1Id;
       finalData.cloudflareR2BucketName = meta.cloudflareR2BucketName;
-    } catch (e) {
-      console.error("Auto-discovery failed", e);
-    }
+    } catch (e) {}
   }
 
   const lastProject = await db.select({ order: projects.order })
@@ -248,20 +272,20 @@ api.post("/projects/:id/sync", async (c) => {
   const project = await db.select().from(projects).where(and(eq(projects.id, id), eq(projects.userId, user.id))).get();
   const userSettings = await db.select().from(settings).where(eq(settings.userId, user.id)).get();
 
-  if (!project || !project.githubRepoFullName || !userSettings?.githubPat) {
-    return c.json({ error: "Insufficient data to sync with GitHub" }, 400);
+  if (!project || !project.github_repo_full_name || !userSettings?.githubPat) {
+    return c.json({ error: "Insufficient data" }, 400);
   }
 
-  const meta = await syncProjectMetadata(project.githubRepoFullName, userSettings.githubPat, masterKey);
+  const meta = await syncProjectMetadata(project.github_repo_full_name, userSettings.githubPat, masterKey);
 
   await db.update(projects)
     .set({
       description: meta.description || project.description,
-      prodUrl: meta.prodUrl || project.prodUrl,
+      prodUrl: meta.prodUrl || project.prod_url,
       isCloudflareProject: meta.isCloudflareProject,
-      cloudflareProjectName: meta.cloudflareProjectName || project.cloudflareProjectName,
-      cloudflareD1Id: meta.cloudflareD1Id || project.cloudflareD1Id,
-      cloudflareR2BucketName: meta.cloudflareR2BucketName || project.cloudflareR2BucketName,
+      cloudflareProjectName: meta.cloudflareProjectName || project.cloudflare_project_name,
+      cloudflareD1Id: meta.cloudflareD1Id || project.cloudflare_d1_id,
+      cloudflareR2BucketName: meta.cloudflareR2BucketName || project.cloudflare_r2_bucket_name,
       updatedAt: new Date(),
     })
     .where(eq(projects.id, id));
