@@ -1,5 +1,6 @@
 import { createAuthClient } from "better-auth/react";
 
 export const authClient = createAuthClient({
-  baseURL: import.meta.env.VITE_BETTER_AUTH_URL || "http://localhost:5173",
+  // By omitting baseURL, it defaults to the current window origin.
+  // This is the most reliable way to avoid CORS issues on Cloudflare Pages.
 });

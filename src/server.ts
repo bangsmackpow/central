@@ -9,8 +9,14 @@ import { Bindings, Variables } from "./types";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-// Better Auth routes
-app.all("/api/auth/*", async (c) => {
+// Debug logging
+app.use("*", async (c, next) => {
+  console.log(`[${c.req.method}] ${c.req.path}`);
+  await next();
+});
+
+// Better Auth routes - use explicit regex for greedy matching
+app.all("/api/auth/:action{.+$}", async (c) => {
   const auth = getAuth(c.env.DB, c.env);
   return auth.handler(c.req.raw);
 });
