@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, asc, sql } from "drizzle-orm";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { getAuth } from "./auth";
@@ -118,7 +118,7 @@ api.post("/settings", zValidator("json", settingsSchema), async (c) => {
         githubPat: finalPat,
         cloudflareAccountId: body.cloudflareAccountId ?? existing.cloudflareAccountId,
       })
-      .where(eq(settings.userId, user.id));
+      .where(sql`user_id = ${user.id}`); // Use raw SQL to avoid table prefix in UPDATE
   } else {
     await db.insert(settings).values({
       id: crypto.randomUUID(),
@@ -281,6 +281,7 @@ api.post("/projects/:id/sync", async (c) => {
 
   const meta = await syncProjectMetadata(project.githubRepoFullName, userSettings.githubPat, masterKey);
 
+  // Cloudflare D1 fix: Do not use table prefix in WHERE clause for UPDATE
   await db.update(projects)
     .set({
       description: meta.description || project.description,
@@ -291,7 +292,7 @@ api.post("/projects/:id/sync", async (c) => {
       cloudflareR2BucketName: meta.cloudflareR2BucketName || project.cloudflareR2BucketName,
       updatedAt: new Date(),
     })
-    .where(eq(projects.id, id));
+    .where(sql`id = ${id} AND user_id = ${user.id}`);
 
   return c.json({ success: true, meta });
 });
@@ -309,7 +310,6 @@ api.post("/projects/:id/links", zValidator("json", linkSchema), async (c) => {
   const projectId = c.req.param("id");
   const body = c.req.valid("json");
 
-  // Verify project ownership
   const project = await db.select().from(projects).where(and(eq(projects.id, projectId), eq(projects.userId, user.id))).get();
   if (!project) return c.json({ error: "Unauthorized" }, 401);
 
@@ -330,11 +330,10 @@ api.delete("/projects/:projectId/links/:linkId", async (c) => {
   const user = c.get("user");
   const { projectId, linkId } = c.req.param();
 
-  // Verify project ownership
   const project = await db.select().from(projects).where(and(eq(projects.id, projectId), eq(projects.userId, user.id))).get();
   if (!project) return c.json({ error: "Unauthorized" }, 401);
 
-  await db.delete(quickLinks).where(and(eq(quickLinks.id, linkId), eq(quickLinks.projectId, projectId)));
+  await db.delete(quickLinks).where(sql`id = ${linkId} AND project_id = ${projectId}`);
 
   return c.json({ success: true });
 });
@@ -349,7 +348,7 @@ api.patch("/projects/reorder", zValidator("json", z.object({
   for (let i = 0; i < projectIds.length; i++) {
     await db.update(projects)
       .set({ order: i })
-      .where(and(eq(projects.id, projectIds[i]), eq(projects.userId, user.id)));
+      .where(sql`id = ${projectIds[i]} AND user_id = ${user.id}`);
   }
 
   return c.json({ success: true });
@@ -366,7 +365,7 @@ api.patch("/projects/:id", zValidator("json", projectSchema.partial()), async (c
       ...body,
       updatedAt: new Date(),
     })
-    .where(and(eq(projects.id, id), eq(projects.userId, user.id)));
+    .where(sql`id = ${id} AND user_id = ${user.id}`);
 
   return c.json({ success: true });
 });
