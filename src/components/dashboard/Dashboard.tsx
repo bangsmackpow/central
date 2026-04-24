@@ -1,20 +1,11 @@
 import React, { useEffect, useState } from "react";
-import { LogOut, Folder, Plus, Link as LinkIcon, ExternalLink, FileText } from "lucide-react";
+import { LogOut, Folder, Plus } from "lucide-react";
 import { authClient } from "../../lib/auth-client";
+import { Project, User } from "../../types";
 import ProjectCard from "./ProjectCard";
 import ProjectDetails from "./ProjectDetails";
 
-interface Project {
-  id: string;
-  name: string;
-  description: string | null;
-  status: string;
-  thumbnailUrl: string | null;
-  quickLinks: Array<{ label: string; url: string }>;
-  updatedAt: string;
-}
-
-export default function Dashboard({ user, onViewProject }: { user: any, onViewProject: (id: string) => void }) {
+export default function Dashboard({ user }: { user: User }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
@@ -34,7 +25,6 @@ export default function Dashboard({ user, onViewProject }: { user: any, onViewPr
 
   return (
     <div className="flex h-screen bg-muted/20">
-      {/* Sidebar */}
       <aside className="w-64 border-r bg-card flex flex-col">
         <div className="p-6 border-b">
           <h2 className="text-xl font-bold flex items-center gap-2">
@@ -83,7 +73,6 @@ export default function Dashboard({ user, onViewProject }: { user: any, onViewPr
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 overflow-y-auto">
         {selectedProject ? (
           <ProjectDetails project={selectedProject} />

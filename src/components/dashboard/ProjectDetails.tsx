@@ -1,16 +1,7 @@
-import React, { useState, useEffect } from "react";
-import { Link as LinkIcon, ExternalLink, FileText, Layout, Eye, Code } from "lucide-react";
+import React, { useState } from "react";
+import { Link as LinkIcon, ExternalLink, Layout } from "lucide-react";
+import { Project } from "../../types";
 import MarkdownEditor from "../editor/MarkdownEditor";
-
-interface Project {
-  id: string;
-  name: string;
-  description: string | null;
-  status: string;
-  thumbnailUrl: string | null;
-  quickLinks: Array<{ label: string; url: string }>;
-  updatedAt: string;
-}
 
 export default function ProjectDetails({ project }: { project: Project }) {
   const [activeTab, setActiveTab] = useState<"overview" | "docs">("overview");
@@ -56,7 +47,7 @@ export default function ProjectDetails({ project }: { project: Project }) {
                   Quick Links
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {project.quickLinks.map((link, i) => (
+                  {(project.quickLinks || []).map((link, i) => (
                     <a
                       key={i}
                       href={link.url}
@@ -87,15 +78,11 @@ export default function ProjectDetails({ project }: { project: Project }) {
                 <div className="space-y-4 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">ID</span>
-                    <span className="font-mono">{project.id}</span>
+                    <span className="font-mono text-xs">{project.id}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Last Updated</span>
                     <span>{new Date(project.updatedAt).toLocaleDateString()}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Members</span>
-                    <span>2 Members</span>
                   </div>
                 </div>
               </section>

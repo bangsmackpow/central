@@ -5,24 +5,18 @@ import Login from "./components/auth/Login";
 
 export default function App() {
   const { data: session, isPending } = authClient.useSession();
-  const [currentView, setCurrentView] = useState("dashboard");
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
 
   if (isPending) {
-    return <div className="flex h-screen items-center justify-center">Loading...</div>;
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
   }
 
   if (!session) {
     return <Login />;
   }
 
-  return (
-    <Dashboard
-      user={session.user}
-      onViewProject={(id) => {
-        setSelectedProjectId(id);
-        setCurrentView("project");
-      }}
-    />
-  );
+  return <Dashboard user={session.user} />;
 }

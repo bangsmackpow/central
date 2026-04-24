@@ -1,14 +1,6 @@
 import React from "react";
 import { ExternalLink, Calendar } from "lucide-react";
-
-interface Project {
-  id: string;
-  name: string;
-  description: string | null;
-  status: string;
-  thumbnailUrl: string | null;
-  updatedAt: string;
-}
+import { Project } from "../../types";
 
 export default function ProjectCard({ project, onClick }: { project: Project; onClick: () => void }) {
   return (

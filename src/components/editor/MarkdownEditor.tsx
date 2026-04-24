@@ -5,6 +5,7 @@ import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import rehypeStringify from "rehype-stringify";
 import rehypeHighlight from "rehype-highlight";
+import rehypeSanitize from "rehype-sanitize";
 
 export default function MarkdownEditor({ projectId }: { projectId: string }) {
   const [content, setContent] = useState("");
@@ -17,7 +18,7 @@ export default function MarkdownEditor({ projectId }: { projectId: string }) {
     fetch(`/api/projects/${projectId}/docs`)
       .then((res) => res.json())
       .then((data) => {
-        setContent(data.content);
+        setContent(data.content || "");
         setLoading(false);
       });
   }, [projectId]);
@@ -32,6 +33,7 @@ export default function MarkdownEditor({ projectId }: { projectId: string }) {
     const result = await unified()
       .use(remarkParse)
       .use(remarkRehype)
+      .use(rehypeSanitize) // Security: Sanitize HTML to prevent XSS
       .use(rehypeHighlight)
       .use(rehypeStringify)
       .process(md);
