@@ -7,6 +7,7 @@ import { getDb } from "./db";
 import { projects, quickLinks, settings } from "./db/schema";
 import { Bindings, Variables } from "./types";
 import { encrypt, decrypt } from "./lib/crypto";
+import { syncProjectMetadata } from "./lib/github";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -182,38 +183,84 @@ api.post("/projects", zValidator("json", projectSchema), async (c) => {
   const db = getDb(c.env.DB);
   const user = c.get("user");
   const body = c.req.valid("json");
+  const masterKey = c.env.MASTER_ENCRYPTION_KEY;
 
-  // Get max order to put at end
+  // Get user settings for GitHub PAT
+  const userSettings = await db.select().from(settings).where(eq(settings.userId, user.id)).get();
+
+  let finalData = { ...body };
+
+  // If promoted from GitHub, try to auto-discover
+  if (body.githubRepoFullName && userSettings?.githubPat) {
+    try {
+      const meta = await syncProjectMetadata(body.githubRepoFullName, userSettings.githubPat, masterKey);
+      finalData.description = meta.description || finalData.description;
+      finalData.prodUrl = meta.prodUrl || finalData.prodUrl;
+      finalData.isCloudflareProject = meta.isCloudflareProject;
+      finalData.cloudflareProjectName = meta.cloudflareProjectName;
+    } catch (e) {
+      console.error("Auto-discovery failed", e);
+    }
+  }
+
+  // Get max order
   const lastProject = await db.select({ order: projects.order })
     .from(projects)
     .where(eq(projects.userId, user.id))
     .orderBy(asc(projects.order))
     .get();
-  
   const nextOrder = lastProject ? lastProject.order + 1 : 0;
 
   const id = crypto.randomUUID();
   await db.insert(projects).values({
     id,
     userId: user.id,
-    name: body.name,
-    description: body.description,
-    status: body.status,
-    githubRepoId: body.githubRepoId,
-    githubRepoFullName: body.githubRepoFullName,
-    isCloudflareProject: body.isCloudflareProject,
-    cloudflareProjectName: body.cloudflareProjectName,
-    prodUrl: body.prodUrl,
-    stagingUrl: body.stagingUrl,
-    codingAgents: body.codingAgents,
-    primaryModel: body.primaryModel,
-    agentInstructionsUrl: body.agentInstructionsUrl,
+    name: finalData.name,
+    description: finalData.description,
+    status: finalData.status,
+    githubRepoId: finalData.githubRepoId,
+    githubRepoFullName: finalData.githubRepoFullName,
+    isCloudflareProject: finalData.isCloudflareProject,
+    cloudflareProjectName: finalData.cloudflareProjectName,
+    prodUrl: finalData.prodUrl,
+    stagingUrl: finalData.stagingUrl,
+    codingAgents: finalData.codingAgents,
+    primaryModel: finalData.primaryModel,
+    agentInstructionsUrl: finalData.agentInstructionsUrl,
     order: nextOrder,
     createdAt: new Date(),
     updatedAt: new Date(),
   });
 
   return c.json({ id, success: true });
+});
+
+api.post("/projects/:id/sync", async (c) => {
+  const db = getDb(c.env.DB);
+  const user = c.get("user");
+  const id = c.req.param("id");
+  const masterKey = c.env.MASTER_ENCRYPTION_KEY;
+
+  const project = await db.select().from(projects).where(and(eq(projects.id, id), eq(projects.userId, user.id))).get();
+  const userSettings = await db.select().from(settings).where(eq(settings.userId, user.id)).get();
+
+  if (!project || !project.githubRepoFullName || !userSettings?.githubPat) {
+    return c.json({ error: "Insufficient data to sync with GitHub" }, 400);
+  }
+
+  const meta = await syncProjectMetadata(project.githubRepoFullName, userSettings.githubPat, masterKey);
+
+  await db.update(projects)
+    .set({
+      description: meta.description || project.description,
+      prodUrl: meta.prodUrl || project.prodUrl,
+      isCloudflareProject: meta.isCloudflareProject,
+      cloudflareProjectName: meta.cloudflareProjectName || project.cloudflareProjectName,
+      updatedAt: new Date(),
+    })
+    .where(eq(projects.id, id));
+
+  return c.json({ success: true, meta });
 });
 
 api.patch("/projects/reorder", zValidator("json", z.object({
@@ -223,7 +270,6 @@ api.patch("/projects/reorder", zValidator("json", z.object({
   const user = c.get("user");
   const { projectIds } = c.req.valid("json");
 
-  // Perform bulk update in a transaction if possible, or sequential
   for (let i = 0; i < projectIds.length; i++) {
     await db.update(projects)
       .set({ order: i })

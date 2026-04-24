@@ -13,7 +13,8 @@ import {
   ShieldCheck,
   Code,
   Save,
-  Loader2
+  Loader2,
+  RefreshCw
 } from "lucide-react";
 import { Project, Settings } from "../../types";
 import MarkdownEditor from "../editor/MarkdownEditor";
@@ -24,6 +25,7 @@ export default function ProjectDetails({ project: initialProject }: { project: P
   const [settings, setSettings] = useState<Partial<Settings>>({});
   const [isEditingIntel, setIsEditingIntelligence] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
     setProject(initialProject);
@@ -76,6 +78,31 @@ export default function ProjectDetails({ project: initialProject }: { project: P
     setSaving(false);
   };
 
+  const handleSyncWithGithub = async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch(`/api/projects/${project.id}/sync`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (res.ok) {
+        // Update local state with new metadata
+        setProject({
+          ...project,
+          ...data.meta,
+          updatedAt: new Date()
+        });
+        alert("Synced successfully with GitHub!");
+      } else {
+        alert(data.error || "Sync failed");
+      }
+    } catch (e) {
+      alert("An error occurred during sync.");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       <header className="bg-card border-b p-6">
@@ -122,10 +149,22 @@ export default function ProjectDetails({ project: initialProject }: { project: P
             <div className="lg:col-span-2 space-y-8">
               {/* GitHub Auto-Links */}
               <section>
-                <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-                  <Github className="w-5 h-5" />
-                  GitHub Context
-                </h2>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-semibold flex items-center gap-2">
+                    <Github className="w-5 h-5" />
+                    GitHub Context
+                  </h2>
+                  {project.githubRepoFullName && (
+                    <button 
+                      onClick={handleSyncWithGithub}
+                      disabled={syncing}
+                      className="text-xs font-bold text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors"
+                    >
+                      {syncing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                      {syncing ? "Syncing..." : "Sync Metadata"}
+                    </button>
+                  )}
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <QuickLinkItem label="Source Code" url={getGithubLink("")} icon={<Code />} />
                   <QuickLinkItem label="Issues" url={getGithubLink("/issues")} icon={<MessageSquare />} />
