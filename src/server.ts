@@ -34,9 +34,9 @@ api.use("*", async (c, next) => {
 
 /**
  * Maps raw database rows to the camelCase Project interface.
- * Essential when Drizzle's relational API is bypassed.
  */
 function mapProject(row: any): Project {
+  if (!row) return row;
   return {
     id: row.id,
     userId: row.user_id || row.userId,
@@ -185,7 +185,7 @@ api.get("/projects", async (c) => {
       with: { quickLinks: true },
       orderBy: [asc(projects.order)],
     });
-    return c.json(projectsList);
+    return c.json(projectsList.map(mapProject));
   } catch (e: any) {
     const rawList = await db.select().from(projects).where(eq(projects.userId, user.id)).orderBy(asc(projects.order));
     return c.json(rawList.map(mapProject));
@@ -269,26 +269,30 @@ api.post("/projects/:id/sync", async (c) => {
   const id = c.req.param("id");
   const masterKey = c.env.MASTER_ENCRYPTION_KEY;
 
-  const project = await db.select().from(projects).where(and(eq(projects.id, id), eq(projects.userId, user.id))).get();
+  // Fetch and normalize local project data
+  const rawProject = await db.select().from(projects).where(and(eq(projects.id, id), eq(projects.userId, user.id))).get();
+  if (!rawProject) return c.json({ error: "Project not found" }, 404);
+  const project = mapProject(rawProject);
+
   const userSettings = await db.select().from(settings).where(eq(settings.userId, user.id)).get();
 
-  if (!project || !project.github_repo_full_name || !userSettings?.githubPat) {
+  if (!project.githubRepoFullName || !userSettings?.githubPat) {
     return c.json({ error: "Insufficient data" }, 400);
   }
 
-  const meta = await syncProjectMetadata(project.github_repo_full_name, userSettings.githubPat, masterKey);
+  const meta = await syncProjectMetadata(project.githubRepoFullName, userSettings.githubPat, masterKey);
 
   await db.update(projects)
     .set({
       description: meta.description || project.description,
-      prodUrl: meta.prodUrl || project.prod_url,
+      prodUrl: meta.prodUrl || project.prodUrl,
       isCloudflareProject: meta.isCloudflareProject,
-      cloudflareProjectName: meta.cloudflareProjectName || project.cloudflare_project_name,
-      cloudflareD1Id: meta.cloudflareD1Id || project.cloudflare_d1_id,
-      cloudflareR2BucketName: meta.cloudflareR2BucketName || project.cloudflare_r2_bucket_name,
+      cloudflareProjectName: meta.cloudflareProjectName || project.cloudflareProjectName,
+      cloudflareD1Id: meta.cloudflareD1Id || project.cloudflareD1Id,
+      cloudflareR2BucketName: meta.cloudflareR2BucketName || project.cloudflareR2BucketName,
       updatedAt: new Date(),
     })
-    .where(eq(projects.id, id));
+    .where(eq(projects.id, id)); // Simplified where to avoid D1 table-prefix issues
 
   return c.json({ success: true, meta });
 });
