@@ -62,8 +62,26 @@ export const projects = sqliteTable("projects", {
     .references(() => user.id),
   name: text("name").notNull(),
   description: text("description"),
-  status: text("status").notNull().default("active"), // active, archived, etc.
+  status: text("status").notNull().default("active"),
   thumbnailUrl: text("thumbnail_url"),
+  
+  // GitHub Integration
+  githubRepoId: integer("github_repo_id"),
+  githubRepoFullName: text("github_repo_full_name"),
+  
+  // Cloudflare Integration
+  isCloudflareProject: integer("is_cloudflare_project", { mode: "boolean" }).default(false),
+  cloudflareProjectName: text("cloudflare_project_name"),
+  
+  // Custom URLs
+  prodUrl: text("prod_url"),
+  stagingUrl: text("staging_url"),
+  
+  // AI / Agent Intelligence
+  codingAgents: text("coding_agents"), // comma separated or JSON
+  primaryModel: text("primary_model"),
+  agentInstructionsUrl: text("agent_instructions_url"),
+
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
@@ -78,10 +96,24 @@ export const quickLinks = sqliteTable("quick_links", {
   order: integer("order").notNull().default(0),
 });
 
+export const settings = sqliteTable("settings", {
+  id: text("id").primaryKey(), // Usually 'global' or userId
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id),
+  githubPat: text("github_pat"),
+  githubUsername: text("github_username"),
+  cloudflareAccountId: text("cloudflare_account_id"),
+});
+
 // --- Relations ---
 
-export const projectsRelations = relations(projects, ({ many }) => ({
+export const projectsRelations = relations(projects, ({ many, one }) => ({
   quickLinks: many(quickLinks),
+  user: one(user, {
+    fields: [projects.userId],
+    references: [user.id],
+  }),
 }));
 
 export const quickLinksRelations = relations(quickLinks, ({ one }) => ({
@@ -89,4 +121,9 @@ export const quickLinksRelations = relations(quickLinks, ({ one }) => ({
     fields: [quickLinks.projectId],
     references: [projects.id],
   }),
+}));
+
+export const userRelations = relations(user, ({ many }) => ({
+  projects: many(projects),
+  settings: many(settings),
 }));
