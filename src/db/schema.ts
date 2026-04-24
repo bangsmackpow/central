@@ -72,6 +72,8 @@ export const projects = sqliteTable("projects", {
   // Cloudflare Integration
   isCloudflareProject: integer("is_cloudflare_project", { mode: "boolean" }).default(false),
   cloudflareProjectName: text("cloudflare_project_name"),
+  cloudflareD1Id: text("cloudflare_d1_id"),
+  cloudflareR2BucketName: text("cloudflare_r2_bucket_name"),
   
   // Custom URLs
   prodUrl: text("prod_url"),

@@ -173,6 +173,8 @@ const projectSchema = z.object({
   githubRepoFullName: z.string().optional().nullable(),
   isCloudflareProject: z.boolean().default(false),
   cloudflareProjectName: z.string().optional().nullable(),
+  cloudflareD1Id: z.string().optional().nullable(),
+  cloudflareR2BucketName: z.string().optional().nullable(),
   prodUrl: z.string().url().optional().nullable().or(z.literal("")),
   stagingUrl: z.string().url().optional().nullable().or(z.literal("")),
   codingAgents: z.string().optional().nullable(),
@@ -197,6 +199,8 @@ api.post("/projects", zValidator("json", projectSchema), async (c) => {
       finalData.prodUrl = meta.prodUrl || finalData.prodUrl;
       finalData.isCloudflareProject = meta.isCloudflareProject;
       finalData.cloudflareProjectName = meta.cloudflareProjectName;
+      finalData.cloudflareD1Id = meta.cloudflareD1Id;
+      finalData.cloudflareR2BucketName = meta.cloudflareR2BucketName;
     } catch (e) {
       console.error("Auto-discovery failed", e);
     }
@@ -220,6 +224,8 @@ api.post("/projects", zValidator("json", projectSchema), async (c) => {
     githubRepoFullName: finalData.githubRepoFullName,
     isCloudflareProject: finalData.isCloudflareProject,
     cloudflareProjectName: finalData.cloudflareProjectName,
+    cloudflareD1Id: finalData.cloudflareD1Id,
+    cloudflareR2BucketName: finalData.cloudflareR2BucketName,
     prodUrl: finalData.prodUrl,
     stagingUrl: finalData.stagingUrl,
     codingAgents: finalData.codingAgents,
@@ -254,6 +260,8 @@ api.post("/projects/:id/sync", async (c) => {
       prodUrl: meta.prodUrl || project.prodUrl,
       isCloudflareProject: meta.isCloudflareProject,
       cloudflareProjectName: meta.cloudflareProjectName || project.cloudflareProjectName,
+      cloudflareD1Id: meta.cloudflareD1Id || project.cloudflareD1Id,
+      cloudflareR2BucketName: meta.cloudflareR2BucketName || project.cloudflareR2BucketName,
       updatedAt: new Date(),
     })
     .where(eq(projects.id, id));

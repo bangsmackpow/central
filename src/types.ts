@@ -13,6 +13,8 @@ export interface Project {
   // Cloudflare Integration
   isCloudflareProject?: boolean | null;
   cloudflareProjectName?: string | null;
+  cloudflareD1Id?: string | null;
+  cloudflareR2BucketName?: string | null;
   
   // Custom URLs
   prodUrl?: string | null;

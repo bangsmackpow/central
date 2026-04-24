@@ -14,7 +14,9 @@ import {
   Code,
   Save,
   Loader2,
-  RefreshCw
+  RefreshCw,
+  Database,
+  HardDrive
 } from "lucide-react";
 import { Project, Settings } from "../../types";
 import MarkdownEditor from "../editor/MarkdownEditor";
@@ -49,11 +51,22 @@ export default function ProjectDetails({ project: initialProject }: { project: P
   const getCloudflareLink = (type: string) => {
     const accountId = settings.cloudflareAccountId;
     if (!accountId) return null;
+    
     if (type === "pages") {
       return `https://dash.cloudflare.com/${accountId}/pages/view/${project.cloudflareProjectName || project.name}`;
     }
-    if (type === "d1") return `https://dash.cloudflare.com/${accountId}/d1`;
-    if (type === "r2") return `https://dash.cloudflare.com/${accountId}/r2/overview`;
+    if (type === "d1") {
+      if (project.cloudflareD1Id) {
+        return `https://dash.cloudflare.com/${accountId}/workers/d1/databases/${project.cloudflareD1Id}/metrics`;
+      }
+      return `https://dash.cloudflare.com/${accountId}/workers/d1`;
+    }
+    if (type === "r2") {
+      if (project.cloudflareR2BucketName) {
+        return `https://dash.cloudflare.com/${accountId}/r2/buckets/${project.cloudflareR2BucketName}`;
+      }
+      return `https://dash.cloudflare.com/${accountId}/r2/overview`;
+    }
     return null;
   };
 
@@ -70,6 +83,8 @@ export default function ProjectDetails({ project: initialProject }: { project: P
         stagingUrl: project.stagingUrl,
         isCloudflareProject: project.isCloudflareProject,
         cloudflareProjectName: project.cloudflareProjectName,
+        cloudflareD1Id: project.cloudflareD1Id,
+        cloudflareR2BucketName: project.cloudflareR2BucketName,
       }),
     });
     if (res.ok) {
@@ -86,12 +101,12 @@ export default function ProjectDetails({ project: initialProject }: { project: P
       });
       const data = await res.json();
       if (res.ok) {
-        // Update local state with new metadata
-        setProject({
+        const updated = {
           ...project,
           ...data.meta,
           updatedAt: new Date()
-        });
+        };
+        setProject(updated);
         alert("Synced successfully with GitHub!");
       } else {
         alert(data.error || "Sync failed");
@@ -187,8 +202,8 @@ export default function ProjectDetails({ project: initialProject }: { project: P
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <QuickLinkItem label="Pages Deployment" url={getCloudflareLink("pages")} icon={<Cloud />} />
-                      <QuickLinkItem label="D1 Database" url={getCloudflareLink("d1")} icon={<Layout />} />
-                      <QuickLinkItem label="R2 Storage" url={getCloudflareLink("r2")} icon={<Layout />} />
+                      <QuickLinkItem label="D1 Database" url={getCloudflareLink("d1")} icon={<Database />} />
+                      <QuickLinkItem label="R2 Storage" url={getCloudflareLink("r2")} icon={<HardDrive />} />
                     </div>
                   )}
                 </section>
@@ -340,11 +355,29 @@ export default function ProjectDetails({ project: initialProject }: { project: P
                         <label htmlFor="isCf" className="text-sm font-medium">Force Cloudflare Links</label>
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium">CF Project Name (if different)</label>
+                        <label className="text-xs font-medium">CF Project Name</label>
                         <input 
                           className="w-full p-2 border rounded-md text-sm"
                           value={project.cloudflareProjectName || ""}
                           onChange={(e) => setProject({ ...project, cloudflareProjectName: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium">D1 Database ID</label>
+                        <input 
+                          className="w-full p-2 border rounded-md text-sm font-mono"
+                          value={project.cloudflareD1Id || ""}
+                          onChange={(e) => setProject({ ...project, cloudflareD1Id: e.target.value })}
+                          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium">R2 Bucket Name</label>
+                        <input 
+                          className="w-full p-2 border rounded-md text-sm"
+                          value={project.cloudflareR2BucketName || ""}
+                          onChange={(e) => setProject({ ...project, cloudflareR2BucketName: e.target.value })}
+                          placeholder="my-bucket-name"
                         />
                       </div>
                     </div>

@@ -34,6 +34,8 @@ export async function syncProjectMetadata(
 
   // 2. Look for wrangler.toml or wrangler.jsonc
   let cfProjectName = null;
+  let cfD1Id = null;
+  let cfR2Bucket = null;
   let isCf = false;
 
   // Check homepage first
@@ -53,10 +55,22 @@ export async function syncProjectMetadata(
       const fileData = await fileRes.json();
       const content = atob(fileData.content);
       
-      // Basic regex to find name = "..." or "name": "..."
+      // Parse Project Name
       const nameMatch = content.match(/name\s*[:=]\s*["']([^"']+)["']/);
       if (nameMatch) {
         cfProjectName = nameMatch[1];
+      }
+
+      // Parse D1 Database ID
+      const d1Match = content.match(/database_id\s*[:=]\s*["']([^"']+)["']/);
+      if (d1Match) {
+        cfD1Id = d1Match[1];
+      }
+
+      // Parse R2 Bucket Name
+      const r2Match = content.match(/bucket_name\s*[:=]\s*["']([^"']+)["']/);
+      if (r2Match) {
+        cfR2Bucket = r2Match[1];
       }
       break; 
     }
@@ -67,5 +81,7 @@ export async function syncProjectMetadata(
     prodUrl: repoData.homepage,
     isCloudflareProject: isCf,
     cloudflareProjectName: cfProjectName,
+    cloudflareD1Id: cfD1Id,
+    cloudflareR2BucketName: cfR2Bucket,
   };
 }
