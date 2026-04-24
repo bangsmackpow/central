@@ -35,15 +35,17 @@ api.use("*", async (c, next) => {
 api.get("/settings", async (c) => {
   const db = getDb(c.env.DB);
   const user = c.get("user");
-  const userSettings = await db.query.settings.findFirst({
-    where: eq(settings.userId, user.id),
-  });
+  
+  // Use standard select to avoid relational API alias issues on D1
+  const userSettings = await db.select()
+    .from(settings)
+    .where(eq(settings.userId, user.id))
+    .get();
   
   if (!userSettings) {
     return c.json({ githubUsername: "", cloudflareAccountId: "" });
   }
   
-  // Don't return the full PAT to the frontend
   return c.json({
     githubUsername: userSettings.githubUsername,
     cloudflareAccountId: userSettings.cloudflareAccountId,
@@ -62,9 +64,10 @@ api.post("/settings", zValidator("json", settingsSchema), async (c) => {
   const user = c.get("user");
   const body = c.req.valid("json");
 
-  const existing = await db.query.settings.findFirst({
-    where: eq(settings.userId, user.id),
-  });
+  const existing = await db.select()
+    .from(settings)
+    .where(eq(settings.userId, user.id))
+    .get();
 
   if (existing) {
     await db.update(settings)
@@ -92,9 +95,10 @@ api.post("/settings", zValidator("json", settingsSchema), async (c) => {
 api.get("/github/repos", async (c) => {
   const db = getDb(c.env.DB);
   const user = c.get("user");
-  const userSettings = await db.query.settings.findFirst({
-    where: eq(settings.userId, user.id),
-  });
+  const userSettings = await db.select()
+    .from(settings)
+    .where(eq(settings.userId, user.id))
+    .get();
 
   if (!userSettings?.githubPat) {
     return c.json({ error: "GitHub PAT not configured" }, 400);
@@ -121,11 +125,20 @@ api.get("/github/repos", async (c) => {
 api.get("/projects", async (c) => {
   const db = getDb(c.env.DB);
   const user = c.get("user");
-  const projectsList = await db.query.projects.findMany({
-    where: eq(projects.userId, user.id),
-    with: { quickLinks: true },
-  });
-  return c.json(projectsList);
+  
+  // Use relational API for project list because it handles the with: quickLinks nicely
+  // If this also fails, we'll need to manually join.
+  try {
+    const projectsList = await db.query.projects.findMany({
+      where: eq(projects.userId, user.id),
+      with: { quickLinks: true },
+    });
+    return c.json(projectsList);
+  } catch (e: any) {
+    // Fallback if relational API fails
+    const projectsList = await db.select().from(projects).where(eq(projects.userId, user.id));
+    return c.json(projectsList);
+  }
 });
 
 const projectSchema = z.object({
@@ -192,9 +205,11 @@ api.get("/projects/:id/docs", async (c) => {
   const user = c.get("user");
   const db = getDb(c.env.DB);
   
-  const project = await db.query.projects.findFirst({
-    where: and(eq(projects.id, id), eq(projects.userId, user.id)),
-  });
+  const project = await db.select()
+    .from(projects)
+    .where(and(eq(projects.id, id), eq(projects.userId, user.id)))
+    .get();
+
   if (!project) return c.json({ error: "Not found" }, 404);
 
   const object = await c.env.BUCKET.get(`projects/${id}/docs/main.md`);
@@ -212,9 +227,11 @@ api.post("/projects/:id/docs", zValidator("json", docsSchema), async (c) => {
   const user = c.get("user");
   const db = getDb(c.env.DB);
   
-  const project = await db.query.projects.findFirst({
-    where: and(eq(projects.id, id), eq(projects.userId, user.id)),
-  });
+  const project = await db.select()
+    .from(projects)
+    .where(and(eq(projects.id, id), eq(projects.userId, user.id)))
+    .get();
+
   if (!project) return c.json({ error: "Not found" }, 404);
 
   const { content } = c.req.valid("json");
