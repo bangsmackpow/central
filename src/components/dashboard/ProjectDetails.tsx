@@ -1,4 +1,3 @@
-import React, { useState, useEffect } from "react";
 import { 
   Link as LinkIcon, 
   ExternalLink, 
@@ -24,6 +23,7 @@ import {
   Container,
   Terminal
 } from "lucide-react";
+import React, { useState, useEffect } from "react";
 import { Project, Settings, Server } from "../../types";
 import MarkdownEditor from "../editor/MarkdownEditor";
 
@@ -89,8 +89,9 @@ export default function ProjectDetails({ project: initialProject }: { project: P
     const server = servers.find(s => s.id === serverId);
     if (!server || !stackName) return null;
     const baseUrl = server.url.replace(/\/$/, "");
-    if (type === "stack") return `${baseUrl}/#!/1/docker/stacks/${stackName}`;
-    if (type === "container") return `${baseUrl}/#!/1/docker/containers`;
+    // Use the dynamic endpointId instead of hardcoded 1
+    if (type === "stack") return `${baseUrl}/#!/${endpointId}/docker/stacks/${stackName}`;
+    if (type === "container") return `${baseUrl}/#!/${endpointId}/docker/containers`;
     return baseUrl;
   };
 
@@ -108,7 +109,7 @@ export default function ProjectDetails({ project: initialProject }: { project: P
       cloudflareR2BucketName: cfR2Bucket,
       isDockerProject: Boolean(isDockerManual),
       serverId: serverId,
-      portainerEndpointId: parseInt(endpointId),
+      portainerEndpointId: parseInt(endpointId.toString()),
       portainerStackName: stackName,
     };
 
@@ -374,6 +375,10 @@ export default function ProjectDetails({ project: initialProject }: { project: P
                             <option value="">Select a Server</option>
                             {servers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                           </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium">Environment ID</label>
+                          <input className="w-full p-2 border rounded-md text-sm" type="number" value={endpointId} onChange={(e) => setProject({ ...project, portainerEndpointId: e.target.value })} />
                         </div>
                         <div className="space-y-1">
                           <label className="text-xs font-medium">Stack Name</label>
