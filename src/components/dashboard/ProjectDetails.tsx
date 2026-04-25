@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from "react";
 import { 
   Link as LinkIcon, 
   ExternalLink, 
@@ -21,9 +22,11 @@ import {
   X,
   Server as ServerIcon,
   Container,
-  Terminal
+  Terminal,
+  PlayCircle,
+  StopCircle,
+  AlertCircle
 } from "lucide-react";
-import React, { useState, useEffect } from "react";
 import { Project, Settings, Server } from "../../types";
 import MarkdownEditor from "../editor/MarkdownEditor";
 
@@ -32,6 +35,8 @@ export default function ProjectDetails({ project: initialProject }: { project: P
   const [activeTab, setActiveTab] = useState<"overview" | "docs" | "intelligence">("overview");
   const [settings, setSettings] = useState<Partial<Settings>>({});
   const [servers, setServers] = useState<Server[]>([]);
+  const [dockerContext, setDockerContext] = useState<any>(null);
+  const [loadingDocker, setLoadingDocker] = useState(false);
   const [isEditingIntel, setIsEditingIntelligence] = useState(false);
   const [showAddLink, setShowAddLink] = useState(false);
   const [newLink, setNewLink] = useState({ label: "", url: "" });
@@ -71,6 +76,23 @@ export default function ProjectDetails({ project: initialProject }: { project: P
 
   const isDocker = isDockerManual || !!stackName;
 
+  // Fetch real-time Docker Context when tab is active or project changes
+  useEffect(() => {
+    if (isDocker && serverId && stackName) {
+      refreshDockerContext();
+    }
+  }, [isDocker, serverId, stackName]);
+
+  const refreshDockerContext = async () => {
+    setLoadingDocker(true);
+    try {
+      const res = await fetch(`/api/projects/${project.id}/docker-context`);
+      const data = await res.json();
+      if (!data.error) setDockerContext(data);
+    } catch (e) {}
+    setLoadingDocker(false);
+  };
+
   const getGithubLink = (path: string) => {
     if (!githubRepo) return null;
     return `https://github.com/${githubRepo}${path}`;
@@ -85,13 +107,19 @@ export default function ProjectDetails({ project: initialProject }: { project: P
     return null;
   };
 
-  const getPortainerLink = (type: string) => {
+  const getPortainerLink = (type: string, containerId?: string) => {
     const server = servers.find(s => s.id === serverId);
-    if (!server || !stackName) return null;
+    if (!server) return null;
     const baseUrl = server.url.replace(/\/$/, "");
-    // Use the dynamic endpointId instead of hardcoded 1
-    if (type === "stack") return `${baseUrl}/#!/${endpointId}/docker/stacks/${stackName}`;
-    if (type === "container") return `${baseUrl}/#!/${endpointId}/docker/containers`;
+    
+    if (type === "stack") {
+      const id = dockerContext?.stackId;
+      if (!id) return `${baseUrl}/#!/${endpointId}/docker/stacks`;
+      return `${baseUrl}/#!/${endpointId}/docker/stacks/${stackName}?id=${id}&type=2&regular=true`;
+    }
+    if (type === "logs" && containerId) {
+      return `${baseUrl}/#!/${endpointId}/docker/containers/${containerId}/logs`;
+    }
     return baseUrl;
   };
 
@@ -234,15 +262,34 @@ export default function ProjectDetails({ project: initialProject }: { project: P
               {/* Docker Infrastructure */}
               {isDocker && (
                 <section>
-                  <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-                    <Container className="w-5 h-5 text-blue-500" /> Docker & Portainer
-                  </h2>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-xl font-semibold flex items-center gap-2">
+                      <Container className="w-5 h-5 text-blue-500" /> Docker & Portainer
+                    </h2>
+                    <button onClick={refreshDockerContext} disabled={loadingDocker} className="text-xs font-bold text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors">
+                      {loadingDocker ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} Refresh Status
+                    </button>
+                  </div>
                   {!serverId ? (
                     <div className="p-4 bg-blue-50 border border-blue-200 rounded-md text-blue-800 text-sm">Link this project to a server in the <strong>Intelligence</strong> tab.</div>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <QuickLinkItem label="Portainer Stack" url={getPortainerLink("stack")} icon={<Layout />} />
-                      <QuickLinkItem label="Container Logs" url={getPortainerLink("container")} icon={<Terminal />} />
+                      <QuickLinkItem label={`Stack: ${stackName}`} url={getPortainerLink("stack")} icon={<Layout />} />
+                      {(dockerContext?.containers || []).map((c: any) => (
+                        <div key={c.id} className="relative group/link">
+                          <QuickLinkItem 
+                            label={`Logs: ${c.name}`} 
+                            url={getPortainerLink("logs", c.id)} 
+                            icon={c.state === 'running' ? <PlayCircle className="text-green-500" /> : <StopCircle className="text-destructive" />} 
+                          />
+                          <span className="absolute bottom-1 right-3 text-[8px] font-mono opacity-50 uppercase">{c.status}</span>
+                        </div>
+                      ))}
+                      {!loadingDocker && dockerContext?.containers.length === 0 && (
+                        <div className="col-span-full p-4 border-2 border-dashed rounded-md text-center text-muted-foreground text-xs italic">
+                          No containers found for stack "{stackName}". Check Portainer settings.
+                        </div>
+                      )}
                     </div>
                   )}
                 </section>
@@ -346,7 +393,6 @@ export default function ProjectDetails({ project: initialProject }: { project: P
 
                 {isEditingIntel && (
                   <div className="mt-8 pt-8 border-t space-y-6">
-                    {/* Cloudflare Section */}
                     <div className="space-y-4">
                       <h3 className="font-bold text-orange-600 text-xs uppercase tracking-widest flex items-center gap-2"><Cloud className="w-4 h-4" /> Cloudflare Config</h3>
                       <div className="grid grid-cols-2 gap-4">
@@ -361,7 +407,6 @@ export default function ProjectDetails({ project: initialProject }: { project: P
                       </div>
                     </div>
 
-                    {/* Docker Section */}
                     <div className="space-y-4">
                       <h3 className="font-bold text-blue-600 text-xs uppercase tracking-widest flex items-center gap-2"><Container className="w-4 h-4" /> Docker & Portainer Config</h3>
                       <div className="grid grid-cols-2 gap-4">
@@ -391,7 +436,6 @@ export default function ProjectDetails({ project: initialProject }: { project: P
                       </div>
                     </div>
 
-                    {/* Generic Config */}
                     <div className="space-y-4 pt-4 border-t">
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1">
@@ -423,7 +467,7 @@ function QuickLinkItem({ label, url, icon }: { label: string, url: string | null
     <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between p-4 rounded-lg border bg-card hover:border-primary transition-colors group">
       <div className="flex items-center gap-3">
         <div className="p-2 rounded bg-muted">
-          {icon ? React.cloneElement(icon as React.ReactElement, { className: "w-4 h-4 text-primary" }) : <LinkIcon className="w-4 h-4 text-primary" />}
+          {icon ? icon : <LinkIcon className="w-4 h-4 text-primary" />}
         </div>
         <span className="font-medium">{label}</span>
       </div>

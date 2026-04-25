@@ -8,6 +8,7 @@ import { projects, quickLinks, settings, servers } from "./db/schema";
 import { Bindings, Variables, Project, Server } from "./types";
 import { encrypt, decrypt, isEncrypted } from "./lib/crypto";
 import { syncProjectMetadata } from "./lib/github";
+import { fetchDockerContext } from "./lib/portainer";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -175,7 +176,6 @@ api.delete("/servers/:id", async (c) => {
   const user = c.get("user");
   const id = c.req.param("id");
   
-  // D1 safety: avoid table prefix in DELETE WHERE clause
   await db.delete(servers).where(sql`id = ${id} AND user_id = ${user.id}`);
   return c.json({ success: true });
 });
@@ -316,6 +316,34 @@ api.post("/projects/:id/sync", async (c) => {
     .where(sql`id = ${id} AND user_id = ${user.id}`);
 
   return c.json({ success: true, meta });
+});
+
+api.get("/projects/:id/docker-context", async (c) => {
+  const db = getDb(c.env.DB);
+  const user = c.get("user");
+  const id = c.req.param("id");
+  const masterKey = c.env.MASTER_ENCRYPTION_KEY;
+
+  const project = await db.select().from(projects).where(and(eq(projects.id, id), eq(projects.userId, user.id))).get();
+  if (!project || !project.server_id || !project.portainer_stack_name) {
+    return c.json({ error: "Docker info not configured for this project" }, 400);
+  }
+
+  const server = await db.select().from(servers).where(and(eq(servers.id, project.server_id), eq(servers.userId, user.id))).get();
+  if (!server) return c.json({ error: "Server not found" }, 404);
+
+  try {
+    const context = await fetchDockerContext(
+      server.url,
+      server.api_key,
+      project.portainer_endpoint_id || 1,
+      project.portainer_stack_name,
+      masterKey
+    );
+    return c.json(context);
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
 });
 
 // --- Quick Link Endpoints ---
