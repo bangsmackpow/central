@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Save, Github, Cloud, Settings as SettingsIcon, RefreshCw, Plus, Trash2, Server as ServerIcon, ExternalLink, ShieldCheck } from "lucide-react";
+import { Save, Github, Cloud, Settings as SettingsIcon, RefreshCw, Plus, Trash2, Server as ServerIcon, ExternalLink, ShieldCheck, Loader2 } from "lucide-react";
 import { Settings, Server } from "../../types";
 
 export default function AdminPanel() {
@@ -59,8 +59,14 @@ export default function AdminPanel() {
 
   const handleDeleteServer = async (id: string) => {
     if (!confirm("Delete this server configuration?")) return;
-    await fetch(`/api/servers/${id}`, { method: "DELETE" });
-    fetchServers();
+    const res = await fetch(`/api/servers/${id}`, { method: "DELETE" });
+    if (res.ok) {
+      // Filter locally for instant update
+      setServers(servers.filter(s => s.id !== id));
+    } else {
+      const data = await res.json();
+      alert(data.error || "Failed to delete server.");
+    }
   };
 
   const handleSyncGithub = async () => {

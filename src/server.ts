@@ -72,7 +72,7 @@ function mapServer(row: any): Server {
     name: row.name,
     url: row.url,
     apiKey: "", // Masked
-    hasKey: !!row.api_key,
+    hasKey: !!(row.api_key || row.apiKey),
     createdAt: new Date(row.created_at || row.createdAt),
     updatedAt: new Date(row.updated_at || row.updatedAt),
   };
@@ -174,6 +174,8 @@ api.delete("/servers/:id", async (c) => {
   const db = getDb(c.env.DB);
   const user = c.get("user");
   const id = c.req.param("id");
+  
+  // D1 safety: avoid table prefix in DELETE WHERE clause
   await db.delete(servers).where(sql`id = ${id} AND user_id = ${user.id}`);
   return c.json({ success: true });
 });
