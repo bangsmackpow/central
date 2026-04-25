@@ -15,6 +15,12 @@ export interface Project {
   cloudflareProjectName?: string | null;
   cloudflareD1Id?: string | null;
   cloudflareR2BucketName?: string | null;
+
+  // Docker Integration
+  isDockerProject?: boolean | null;
+  serverId?: string | null;
+  portainerEndpointId?: number | null;
+  portainerStackName?: string | null;
   
   // Custom URLs
   prodUrl?: string | null;
@@ -59,6 +65,17 @@ export interface Settings {
   githubPat?: string | null;
   githubUsername?: string | null;
   cloudflareAccountId?: string | null;
+}
+
+export interface Server {
+  id: string;
+  userId: string;
+  name: string;
+  url: string;
+  apiKey: string;
+  createdAt: Date;
+  updatedAt: Date;
+  hasKey?: boolean; // For frontend masking
 }
 
 export type Bindings = {

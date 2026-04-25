@@ -29,6 +29,13 @@
       "when": 1777058951107,
       "tag": "0003_shallow_bug",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1777091632015,
+      "tag": "0004_known_maddog",
+      "breakpoints": true
     }
   ]
 }

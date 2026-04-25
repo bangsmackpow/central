@@ -4,8 +4,8 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { getAuth } from "./auth";
 import { getDb } from "./db";
-import { projects, quickLinks, settings } from "./db/schema";
-import { Bindings, Variables, Project } from "./types";
+import { projects, quickLinks, settings, servers } from "./db/schema";
+import { Bindings, Variables, Project, Server } from "./types";
 import { encrypt, decrypt, isEncrypted } from "./lib/crypto";
 import { syncProjectMetadata } from "./lib/github";
 
@@ -50,6 +50,10 @@ function mapProject(row: any): Project {
     cloudflareProjectName: row.cloudflare_project_name || row.cloudflareProjectName,
     cloudflareD1Id: row.cloudflare_d1_id || row.cloudflareD1Id,
     cloudflareR2BucketName: row.cloudflare_r2_bucket_name || row.cloudflareR2BucketName,
+    isDockerProject: Boolean(row.is_docker_project || row.isDockerProject),
+    serverId: row.server_id || row.serverId,
+    portainerEndpointId: row.portainer_endpoint_id || row.portainerEndpointId,
+    portainerStackName: row.portainer_stack_name || row.portainerStackName,
     prodUrl: row.prod_url || row.prodUrl,
     stagingUrl: row.staging_url || row.stagingUrl,
     codingAgents: row.coding_agents || row.codingAgents,
@@ -61,21 +65,26 @@ function mapProject(row: any): Project {
   };
 }
 
+function mapServer(row: any): Server {
+  return {
+    id: row.id,
+    userId: row.user_id || row.userId,
+    name: row.name,
+    url: row.url,
+    apiKey: "", // Masked
+    hasKey: !!row.api_key,
+    createdAt: new Date(row.created_at || row.createdAt),
+    updatedAt: new Date(row.updated_at || row.updatedAt),
+  };
+}
+
 // --- Settings Endpoints ---
 
 api.get("/settings", async (c) => {
   const db = getDb(c.env.DB);
   const user = c.get("user");
-  
-  const userSettings = await db.select()
-    .from(settings)
-    .where(eq(settings.userId, user.id))
-    .get();
-  
-  if (!userSettings) {
-    return c.json({ githubUsername: "", cloudflareAccountId: "" });
-  }
-  
+  const userSettings = await db.select().from(settings).where(eq(settings.userId, user.id)).get();
+  if (!userSettings) return c.json({ githubUsername: "", cloudflareAccountId: "" });
   return c.json({
     githubUsername: userSettings.githubUsername,
     cloudflareAccountId: userSettings.cloudflareAccountId,
@@ -95,21 +104,13 @@ api.post("/settings", zValidator("json", settingsSchema), async (c) => {
   const body = c.req.valid("json");
   const masterKey = c.env.MASTER_ENCRYPTION_KEY;
 
-  if (!masterKey) {
-    return c.json({ error: "Server encryption not configured" }, 500);
-  }
+  if (!masterKey) return c.json({ error: "Server encryption not configured" }, 500);
 
-  const existing = await db.select()
-    .from(settings)
-    .where(eq(settings.userId, user.id))
-    .get();
+  const existing = await db.select().from(settings).where(eq(settings.userId, user.id)).get();
 
   let finalPat = body.githubPat;
-  if (finalPat) {
-    finalPat = await encrypt(finalPat, masterKey);
-  } else if (existing) {
-    finalPat = existing.githubPat;
-  }
+  if (finalPat) finalPat = await encrypt(finalPat, masterKey);
+  else if (existing) finalPat = existing.githubPat;
 
   if (existing) {
     await db.update(settings)
@@ -118,7 +119,7 @@ api.post("/settings", zValidator("json", settingsSchema), async (c) => {
         githubPat: finalPat,
         cloudflareAccountId: body.cloudflareAccountId ?? existing.cloudflareAccountId,
       })
-      .where(sql`user_id = ${user.id}`); // Use raw SQL to avoid table prefix in UPDATE
+      .where(sql`user_id = ${user.id}`);
   } else {
     await db.insert(settings).values({
       id: crypto.randomUUID(),
@@ -128,7 +129,52 @@ api.post("/settings", zValidator("json", settingsSchema), async (c) => {
       cloudflareAccountId: body.cloudflareAccountId,
     });
   }
+  return c.json({ success: true });
+});
 
+// --- Server Endpoints ---
+
+api.get("/servers", async (c) => {
+  const db = getDb(c.env.DB);
+  const user = c.get("user");
+  const serverList = await db.select().from(servers).where(eq(servers.userId, user.id)).orderBy(asc(servers.name));
+  return c.json(serverList.map(mapServer));
+});
+
+const serverSchema = z.object({
+  name: z.string().min(1),
+  url: z.string().url(),
+  apiKey: z.string().optional(),
+});
+
+api.post("/servers", zValidator("json", serverSchema), async (c) => {
+  const db = getDb(c.env.DB);
+  const user = c.get("user");
+  const body = c.req.valid("json");
+  const masterKey = c.env.MASTER_ENCRYPTION_KEY;
+
+  if (!masterKey) return c.json({ error: "Encryption not configured" }, 500);
+
+  const encryptedKey = body.apiKey ? await encrypt(body.apiKey, masterKey) : "";
+
+  const id = crypto.randomUUID();
+  await db.insert(servers).values({
+    id,
+    userId: user.id,
+    name: body.name,
+    url: body.url,
+    apiKey: encryptedKey,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  return c.json({ id, success: true });
+});
+
+api.delete("/servers/:id", async (c) => {
+  const db = getDb(c.env.DB);
+  const user = c.get("user");
+  const id = c.req.param("id");
+  await db.delete(servers).where(sql`id = ${id} AND user_id = ${user.id}`);
   return c.json({ success: true });
 });
 
@@ -139,22 +185,12 @@ api.get("/github/repos", async (c) => {
   const user = c.get("user");
   const masterKey = c.env.MASTER_ENCRYPTION_KEY;
 
-  const userSettings = await db.select()
-    .from(settings)
-    .where(eq(settings.userId, user.id))
-    .get();
-
-  if (!userSettings?.githubPat) {
-    return c.json({ error: "GitHub PAT not configured" }, 400);
-  }
+  const userSettings = await db.select().from(settings).where(eq(settings.userId, user.id)).get();
+  if (!userSettings?.githubPat) return c.json({ error: "GitHub PAT not configured" }, 400);
 
   let pat = userSettings.githubPat;
   if (isEncrypted(pat)) {
-    try {
-      pat = await decrypt(pat, masterKey);
-    } catch (e) {
-      return c.json({ error: "Decryption failed" }, 500);
-    }
+    try { pat = await decrypt(pat, masterKey); } catch (e) { return c.json({ error: "Decryption failed" }, 500); }
   }
 
   const response = await fetch("https://api.github.com/user/repos?per_page=100&sort=updated", {
@@ -165,10 +201,7 @@ api.get("/github/repos", async (c) => {
     },
   });
 
-  if (!response.ok) {
-    return c.json({ error: "Failed to fetch from GitHub" }, response.status);
-  }
-
+  if (!response.ok) return c.json({ error: "Failed to fetch from GitHub" }, response.status);
   const repos = await response.json();
   return c.json(repos);
 });
@@ -178,7 +211,6 @@ api.get("/github/repos", async (c) => {
 api.get("/projects", async (c) => {
   const db = getDb(c.env.DB);
   const user = c.get("user");
-  
   try {
     const projectsList = await db.query.projects.findMany({
       where: eq(projects.userId, user.id),
@@ -202,6 +234,10 @@ const projectSchema = z.object({
   cloudflareProjectName: z.string().optional().nullable(),
   cloudflareD1Id: z.string().optional().nullable(),
   cloudflareR2BucketName: z.string().optional().nullable(),
+  isDockerProject: z.boolean().default(false),
+  serverId: z.string().optional().nullable(),
+  portainerEndpointId: z.number().optional().nullable(),
+  portainerStackName: z.string().optional().nullable(),
   prodUrl: z.string().url().optional().nullable().or(z.literal("")),
   stagingUrl: z.string().url().optional().nullable().or(z.literal("")),
   codingAgents: z.string().optional().nullable(),
@@ -227,39 +263,23 @@ api.post("/projects", zValidator("json", projectSchema), async (c) => {
       finalData.cloudflareProjectName = meta.cloudflareProjectName;
       finalData.cloudflareD1Id = meta.cloudflareD1Id;
       finalData.cloudflareR2BucketName = meta.cloudflareR2BucketName;
+      finalData.isDockerProject = meta.isDockerProject;
+      finalData.portainerStackName = meta.portainerStackName;
     } catch (e) {}
   }
 
-  const lastProject = await db.select({ order: projects.order })
-    .from(projects)
-    .where(eq(projects.userId, user.id))
-    .orderBy(asc(projects.order))
-    .get();
+  const lastProject = await db.select({ order: projects.order }).from(projects).where(eq(projects.userId, user.id)).orderBy(asc(projects.order)).get();
   const nextOrder = lastProject ? lastProject.order + 1 : 0;
 
   const id = crypto.randomUUID();
   await db.insert(projects).values({
     id,
     userId: user.id,
-    name: finalData.name,
-    description: finalData.description,
-    status: finalData.status,
-    githubRepoId: finalData.githubRepoId,
-    githubRepoFullName: finalData.githubRepoFullName,
-    isCloudflareProject: finalData.isCloudflareProject,
-    cloudflareProjectName: finalData.cloudflareProjectName,
-    cloudflareD1Id: finalData.cloudflareD1Id,
-    cloudflareR2BucketName: finalData.cloudflareR2BucketName,
-    prodUrl: finalData.prodUrl,
-    stagingUrl: finalData.stagingUrl,
-    codingAgents: finalData.codingAgents,
-    primaryModel: finalData.primaryModel,
-    agentInstructionsUrl: finalData.agentInstructionsUrl,
+    ...finalData,
     order: nextOrder,
     createdAt: new Date(),
     updatedAt: new Date(),
   });
-
   return c.json({ id, success: true });
 });
 
@@ -275,13 +295,10 @@ api.post("/projects/:id/sync", async (c) => {
 
   const userSettings = await db.select().from(settings).where(eq(settings.userId, user.id)).get();
 
-  if (!project.githubRepoFullName || !userSettings?.githubPat) {
-    return c.json({ error: "Insufficient data" }, 400);
-  }
+  if (!project.githubRepoFullName || !userSettings?.githubPat) return c.json({ error: "Insufficient data" }, 400);
 
   const meta = await syncProjectMetadata(project.githubRepoFullName, userSettings.githubPat, masterKey);
 
-  // Cloudflare D1 fix: Do not use table prefix in WHERE clause for UPDATE
   await db.update(projects)
     .set({
       description: meta.description || project.description,
@@ -290,6 +307,8 @@ api.post("/projects/:id/sync", async (c) => {
       cloudflareProjectName: meta.cloudflareProjectName || project.cloudflareProjectName,
       cloudflareD1Id: meta.cloudflareD1Id || project.cloudflareD1Id,
       cloudflareR2BucketName: meta.cloudflareR2BucketName || project.cloudflareR2BucketName,
+      isDockerProject: meta.isDockerProject,
+      portainerStackName: meta.portainerStackName || project.portainerStackName,
       updatedAt: new Date(),
     })
     .where(sql`id = ${id} AND user_id = ${user.id}`);
@@ -299,29 +318,17 @@ api.post("/projects/:id/sync", async (c) => {
 
 // --- Quick Link Endpoints ---
 
-const linkSchema = z.object({
-  label: z.string().min(1).max(50),
-  url: z.string().url(),
-});
+const linkSchema = z.object({ label: z.string().min(1).max(50), url: z.string().url() });
 
 api.post("/projects/:id/links", zValidator("json", linkSchema), async (c) => {
   const db = getDb(c.env.DB);
   const user = c.get("user");
   const projectId = c.req.param("id");
   const body = c.req.valid("json");
-
   const project = await db.select().from(projects).where(and(eq(projects.id, projectId), eq(projects.userId, user.id))).get();
   if (!project) return c.json({ error: "Unauthorized" }, 401);
-
   const id = crypto.randomUUID();
-  await db.insert(quickLinks).values({
-    id,
-    projectId,
-    label: body.label,
-    url: body.url,
-    order: 0,
-  });
-
+  await db.insert(quickLinks).values({ id, projectId, label: body.label, url: body.url, order: 0 });
   return c.json({ id, success: true });
 });
 
@@ -329,28 +336,19 @@ api.delete("/projects/:projectId/links/:linkId", async (c) => {
   const db = getDb(c.env.DB);
   const user = c.get("user");
   const { projectId, linkId } = c.req.param();
-
   const project = await db.select().from(projects).where(and(eq(projects.id, projectId), eq(projects.userId, user.id))).get();
   if (!project) return c.json({ error: "Unauthorized" }, 401);
-
   await db.delete(quickLinks).where(sql`id = ${linkId} AND project_id = ${projectId}`);
-
   return c.json({ success: true });
 });
 
-api.patch("/projects/reorder", zValidator("json", z.object({
-  projectIds: z.array(z.string())
-})), async (c) => {
+api.patch("/projects/reorder", zValidator("json", z.object({ projectIds: z.array(z.string()) })), async (c) => {
   const db = getDb(c.env.DB);
   const user = c.get("user");
   const { projectIds } = c.req.valid("json");
-
   for (let i = 0; i < projectIds.length; i++) {
-    await db.update(projects)
-      .set({ order: i })
-      .where(sql`id = ${projectIds[i]} AND user_id = ${user.id}`);
+    await db.update(projects).set({ order: i }).where(sql`id = ${projectIds[i]} AND user_id = ${user.id}`);
   }
-
   return c.json({ success: true });
 });
 
@@ -359,14 +357,7 @@ api.patch("/projects/:id", zValidator("json", projectSchema.partial()), async (c
   const user = c.get("user");
   const id = c.req.param("id");
   const body = c.req.valid("json");
-
-  await db.update(projects)
-    .set({
-      ...body,
-      updatedAt: new Date(),
-    })
-    .where(sql`id = ${id} AND user_id = ${user.id}`);
-
+  await db.update(projects).set({ ...body, updatedAt: new Date() }).where(sql`id = ${id} AND user_id = ${user.id}`);
   return c.json({ success: true });
 });
 
@@ -374,40 +365,24 @@ api.get("/projects/:id/docs", async (c) => {
   const id = c.req.param("id");
   const user = c.get("user");
   const db = getDb(c.env.DB);
-  
-  const project = await db.select()
-    .from(projects)
-    .where(and(eq(projects.id, id), eq(projects.userId, user.id)))
-    .get();
-
+  const project = await db.select().from(projects).where(and(eq(projects.id, id), eq(projects.userId, user.id))).get();
   if (!project) return c.json({ error: "Not found" }, 404);
-
   const object = await c.env.BUCKET.get(`projects/${id}/docs/main.md`);
   if (!object) return c.json({ content: "" });
   const content = await object.text();
   return c.json({ content });
 });
 
-const docsSchema = z.object({
-  content: z.string().max(100000),
-});
+const docsSchema = z.object({ content: z.string().max(100000) });
 
 api.post("/projects/:id/docs", zValidator("json", docsSchema), async (c) => {
   const id = c.req.param("id");
   const user = c.get("user");
   const db = getDb(c.env.DB);
-  
-  const project = await db.select()
-    .from(projects)
-    .where(and(eq(projects.id, id), eq(projects.userId, user.id)))
-    .get();
-
+  const project = await db.select().from(projects).where(and(eq(projects.id, id), eq(projects.userId, user.id))).get();
   if (!project) return c.json({ error: "Not found" }, 404);
-
   const { content } = c.req.valid("json");
-  await c.env.BUCKET.put(`projects/${id}/docs/main.md`, content, {
-    httpMetadata: { contentType: "text/markdown" },
-  });
+  await c.env.BUCKET.put(`projects/${id}/docs/main.md`, content, { httpMetadata: { contentType: "text/markdown" } });
   return c.json({ success: true });
 });
 
@@ -416,11 +391,9 @@ api.get("/r2/:key{.+$}", async (c) => {
   const key = c.req.param("key");
   const object = await c.env.BUCKET.get(key);
   if (!object) return c.notFound();
-
   const headers = new Headers();
   object.writeHttpMetadata(headers);
   headers.set("etag", object.httpEtag);
-
   return c.body(object.body, 200, Object.fromEntries(headers));
 });
 

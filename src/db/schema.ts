@@ -75,6 +75,12 @@ export const projects = sqliteTable("projects", {
   cloudflareD1Id: text("cloudflare_d1_id"),
   cloudflareR2BucketName: text("cloudflare_r2_bucket_name"),
   
+  // Docker / Portainer Integration
+  isDockerProject: integer("is_docker_project", { mode: "boolean" }).default(false),
+  serverId: text("server_id").references(() => servers.id),
+  portainerEndpointId: integer("portainer_endpoint_id"),
+  portainerStackName: text("portainer_stack_name"),
+  
   // Custom URLs
   prodUrl: text("prod_url"),
   stagingUrl: text("staging_url"),
@@ -109,6 +115,18 @@ export const settings = sqliteTable("settings", {
   cloudflareAccountId: text("cloudflare_account_id"),
 });
 
+export const servers = sqliteTable("servers", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id),
+  name: text("name").notNull(),
+  url: text("url").notNull(),
+  apiKey: text("api_key").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
 // --- Relations ---
 
 export const projectsRelations = relations(projects, ({ many, one }) => ({
@@ -116,6 +134,10 @@ export const projectsRelations = relations(projects, ({ many, one }) => ({
   user: one(user, {
     fields: [projects.userId],
     references: [user.id],
+  }),
+  server: one(servers, {
+    fields: [projects.serverId],
+    references: [servers.id],
   }),
 }));
 
@@ -126,7 +148,16 @@ export const quickLinksRelations = relations(quickLinks, ({ one }) => ({
   }),
 }));
 
+export const serversRelations = relations(servers, ({ one, many }) => ({
+  user: one(user, {
+    fields: [servers.userId],
+    references: [user.id],
+  }),
+  projects: many(projects),
+}));
+
 export const userRelations = relations(user, ({ many }) => ({
   projects: many(projects),
   settings: many(settings),
+  servers: many(servers),
 }));
