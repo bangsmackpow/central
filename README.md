@@ -1,6 +1,6 @@
 # Central Dashboard
 
-A lightweight, production-ready project dashboard built with Hono, React, Better-Auth, Cloudflare D1, and R2.
+A lightweight, production-ready project management hub built with Hono, React, Better-Auth, Cloudflare D1, and R2. Unified control for Cloudflare Edge and Docker/Portainer self-hosted environments.
 
 ## 🚀 Setup & Installation
 
@@ -22,10 +22,9 @@ Update `wrangler.toml` with your `database_id`.
    ```bash
    npm install --legacy-peer-deps
    ```
-2. **Setup Environment**: Copy `.env.example` to `.env` and fill in the values.
+2. **Setup Environment**: Copy `.env.example` to `.env`.
 3. **Database Migrations**:
    ```bash
-   npm run db:generate
    npx wrangler d1 migrations apply central-db --local
    ```
 4. **Start Dev Server**:
@@ -35,36 +34,29 @@ Update `wrangler.toml` with your `database_id`.
 
 ### 4. Deployment (Cloudflare Pages)
 1. **GitHub Connection**: Link this repo to Cloudflare Pages.
-2. **Environment Variables**: Add the following in the Cloudflare Dashboard:
+2. **Settings > Functions**:
+    - Add Compatibility Flag: `nodejs_compat` (Required for Better-Auth).
+3. **Settings > Variables**:
     - `BETTER_AUTH_SECRET`: A long random string.
-    - `BETTER_AUTH_URL`: Your production URL (e.g., `https://central.pages.dev`).
-    - `VITE_BETTER_AUTH_URL`: Same as above.
-    - `NPM_FLAGS`: `--legacy-peer-deps` (Critical for build success).
-3. **Bindings**:
-    - **D1 Database**: Bind `DB` to your `central-db`.
-    - **R2 Bucket**: Bind `BUCKET` to your `central-assets`.
-4. **Production Migrations**:
+    - `BETTER_AUTH_URL`: `https://your-app.pages.dev`
+    - `MASTER_ENCRYPTION_KEY`: A 32-character random string (AES-GCM secret).
+    - `NPM_FLAGS`: `--legacy-peer-deps`
+4. **Settings > Bindings**:
+    - **D1 Database**: Bind `DB` to `central-db`.
+    - **R2 Bucket**: Bind `BUCKET` to `central-assets`.
+5. **Production Migrations**:
    ```bash
    npx wrangler d1 migrations apply central-db --remote
    ```
 
-## 🛠 Tech Stack
-- **Framework**: Hono + Vite + React
-- **Authentication**: Better-Auth (D1 Adapter)
-- **Database**: Cloudflare D1 (Drizzle ORM)
-- **Storage**: Cloudflare R2
-- **Validation**: Zod + Hono zValidator
-- **Markdown**: Unified/Remark/Rehype with `rehype-sanitize`
+## 🛠 Features
+- **Unified Infrastructure**: Manage Cloudflare Pages/Workers and Docker/Portainer stacks in one UI.
+- **GitHub Integration**: Sync repositories, auto-discover infrastructure markers (`wrangler.toml`, `docker-compose.yml`), and generate surgical links to code/secrets/actions.
+- **Intelligence Stack**: Track Coding Agents, AI Models, and Agent Instructions per project.
+- **Secrets Security**: Bank-grade encryption (AES-256-GCM) for GitHub PATs and Portainer API Keys.
+- **Documentation**: Markdown notes stored in R2 with XSS-safe rendering.
+- **UX**: Drag-and-drop project reordering in the sidebar.
 
-## 📂 Project Structure
-- `src/index.tsx`: Hono server (API & R2 Proxy)
-- `src/db/schema.ts`: Drizzle schema (Users, Projects, Links)
-- `src/types.ts`: Shared TypeScript interfaces
-- `src/components/editor/`: XSS-safe Markdown editor
-- `PROJECT_MEMORY.md`: Implementation history and technical decisions
-- `agents.md`: Vision for AI Agent integration
-
-## 🤝 Next Steps
-- Implement "Create Project" modal in the UI.
-- Add R2 image upload for project thumbnails.
-- Integrate Cloudflare Vectorize for documentation search.
+## 🤝 Project Links
+- [Architectural Memory](./PROJECT_MEMORY.md)
+- [AI & Agent Roadmap](./agents.md)
