@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, and, asc, sql } from "drizzle-orm";
+import { eq, and, asc, sql, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { getAuth } from "./auth";
@@ -7,8 +7,9 @@ import { getDb } from "./db";
 import { projects, quickLinks, settings, servers } from "./db/schema";
 import { Bindings, Variables, Project, Server } from "./types";
 import { encrypt, decrypt, isEncrypted } from "./lib/crypto";
-import { syncProjectMetadata } from "./lib/github";
+import { syncProjectMetadata, fetchRecentActions } from "./lib/github";
 import { fetchDockerContext } from "./lib/portainer";
+import { fetchRecentPagesDeployments, fetchWorkerStatus } from "./lib/cloudflare";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -49,6 +50,8 @@ function mapProject(row: any): Project {
     githubRepoFullName: row.github_repo_full_name || row.githubRepoFullName,
     isCloudflareProject: Boolean(row.is_cloudflare_project || row.isCloudflareProject),
     cloudflareProjectName: row.cloudflare_project_name || row.cloudflareProjectName,
+    isWorker: Boolean(row.is_worker || row.isWorker),
+    cloudflareWorkerName: row.cloudflare_worker_name || row.cloudflareWorkerName,
     cloudflareD1Id: row.cloudflare_d1_id || row.cloudflareD1Id,
     cloudflareR2BucketName: row.cloudflare_r2_bucket_name || row.cloudflareR2BucketName,
     isDockerProject: Boolean(row.is_docker_project || row.isDockerProject),
@@ -85,11 +88,12 @@ api.get("/settings", async (c) => {
   const db = getDb(c.env.DB);
   const user = c.get("user");
   const userSettings = await db.select().from(settings).where(eq(settings.userId, user.id)).get();
-  if (!userSettings) return c.json({ githubUsername: "", cloudflareAccountId: "" });
+  if (!userSettings) return c.json({ githubUsername: "", cloudflareAccountId: "", cloudflareToken: "" });
   return c.json({
     githubUsername: userSettings.githubUsername,
     cloudflareAccountId: userSettings.cloudflareAccountId,
     hasPat: !!userSettings.githubPat,
+    hasCfToken: !!userSettings.cloudflareToken,
   });
 });
 
@@ -97,6 +101,7 @@ const settingsSchema = z.object({
   githubUsername: z.string().optional(),
   githubPat: z.string().optional(),
   cloudflareAccountId: z.string().optional(),
+  cloudflareToken: z.string().optional(),
 });
 
 api.post("/settings", zValidator("json", settingsSchema), async (c) => {
@@ -113,12 +118,17 @@ api.post("/settings", zValidator("json", settingsSchema), async (c) => {
   if (finalPat) finalPat = await encrypt(finalPat, masterKey);
   else if (existing) finalPat = existing.githubPat;
 
+  let finalCfToken = body.cloudflareToken;
+  if (finalCfToken) finalCfToken = await encrypt(finalCfToken, masterKey);
+  else if (existing) finalCfToken = existing.cloudflareToken;
+
   if (existing) {
     await db.update(settings)
       .set({
         githubUsername: body.githubUsername ?? existing.githubUsername,
         githubPat: finalPat,
         cloudflareAccountId: body.cloudflareAccountId ?? existing.cloudflareAccountId,
+        cloudflareToken: finalCfToken,
       })
       .where(sql`user_id = ${user.id}`);
   } else {
@@ -128,6 +138,7 @@ api.post("/settings", zValidator("json", settingsSchema), async (c) => {
       githubUsername: body.githubUsername,
       githubPat: finalPat,
       cloudflareAccountId: body.cloudflareAccountId,
+      cloudflareToken: finalCfToken,
     });
   }
   return c.json({ success: true });
@@ -234,6 +245,8 @@ const projectSchema = z.object({
   githubRepoFullName: z.string().optional().nullable(),
   isCloudflareProject: z.boolean().default(false),
   cloudflareProjectName: z.string().optional().nullable(),
+  isWorker: z.boolean().default(false),
+  cloudflareWorkerName: z.string().optional().nullable(),
   cloudflareD1Id: z.string().optional().nullable(),
   cloudflareR2BucketName: z.string().optional().nullable(),
   isDockerProject: z.boolean().default(false),
@@ -263,6 +276,8 @@ api.post("/projects", zValidator("json", projectSchema), async (c) => {
       finalData.prodUrl = meta.prodUrl || finalData.prodUrl;
       finalData.isCloudflareProject = meta.isCloudflareProject;
       finalData.cloudflareProjectName = meta.cloudflareProjectName;
+      finalData.isWorker = meta.isWorker;
+      finalData.cloudflareWorkerName = meta.cloudflareWorkerName;
       finalData.cloudflareD1Id = meta.cloudflareD1Id;
       finalData.cloudflareR2BucketName = meta.cloudflareR2BucketName;
       finalData.isDockerProject = meta.isDockerProject;
@@ -307,6 +322,8 @@ api.post("/projects/:id/sync", async (c) => {
       prodUrl: meta.prodUrl || project.prodUrl,
       isCloudflareProject: meta.isCloudflareProject,
       cloudflareProjectName: meta.cloudflareProjectName || project.cloudflareProjectName,
+      isWorker: meta.isWorker,
+      cloudflareWorkerName: meta.cloudflareWorkerName || project.cloudflareWorkerName,
       cloudflareD1Id: meta.cloudflareD1Id || project.cloudflareD1Id,
       cloudflareR2BucketName: meta.cloudflareR2BucketName || project.cloudflareR2BucketName,
       isDockerProject: meta.isDockerProject,
@@ -318,32 +335,94 @@ api.post("/projects/:id/sync", async (c) => {
   return c.json({ success: true, meta });
 });
 
-api.get("/projects/:id/docker-context", async (c) => {
+api.get("/projects/:id/health", async (c) => {
   const db = getDb(c.env.DB);
   const user = c.get("user");
   const id = c.req.param("id");
   const masterKey = c.env.MASTER_ENCRYPTION_KEY;
 
-  const project = await db.select().from(projects).where(and(eq(projects.id, id), eq(projects.userId, user.id))).get();
-  if (!project || !project.server_id || !project.portainer_stack_name) {
-    return c.json({ error: "Docker info not configured for this project" }, 400);
+  const rawProject = await db.select().from(projects).where(and(eq(projects.id, id), eq(projects.userId, user.id))).get();
+  if (!rawProject) return c.json({ error: "Not found" }, 404);
+  const project = mapProject(rawProject);
+
+  const userSettings = await db.select().from(settings).where(eq(settings.userId, user.id)).get();
+  const health: any = { github: [], cloudflare: [], docker: null };
+
+  // 1. GitHub Actions
+  if (project.githubRepoFullName && userSettings?.githubPat) {
+    try {
+      health.github = await fetchRecentActions(project.githubRepoFullName, userSettings.githubPat, masterKey);
+    } catch (e) {}
   }
 
-  const server = await db.select().from(servers).where(and(eq(servers.id, project.server_id), eq(servers.userId, user.id))).get();
-  if (!server) return c.json({ error: "Server not found" }, 404);
-
-  try {
-    const context = await fetchDockerContext(
-      server.url,
-      server.api_key,
-      project.portainer_endpoint_id || 1,
-      project.portainer_stack_name,
-      masterKey
-    );
-    return c.json(context);
-  } catch (e: any) {
-    return c.json({ error: e.message }, 500);
+  // 2. Cloudflare Status
+  if (project.isCloudflareProject && userSettings?.cloudflareToken && userSettings?.cloudflareAccountId) {
+    try {
+      if (project.isWorker && project.cloudflareWorkerName) {
+        health.cloudflare = [await fetchWorkerStatus(userSettings.cloudflareAccountId, project.cloudflareWorkerName, userSettings.cloudflareToken, masterKey)];
+      } else if (project.cloudflareProjectName) {
+        health.cloudflare = await fetchRecentPagesDeployments(userSettings.cloudflareAccountId, project.cloudflareProjectName, userSettings.cloudflareToken, masterKey);
+      }
+    } catch (e) {}
   }
+
+  // 3. Docker Context
+  if (project.isDockerProject && project.serverId && project.portainerStackName) {
+    const server = await db.select().from(servers).where(and(eq(servers.id, project.serverId), eq(servers.userId, user.id))).get();
+    if (server) {
+      try {
+        health.docker = await fetchDockerContext(server.url, server.api_key, project.portainerEndpointId || 1, project.portainerStackName, masterKey);
+      } catch (e) {}
+    }
+  }
+
+  return c.json(health);
+});
+
+api.get("/health/overview", async (c) => {
+  const db = getDb(c.env.DB);
+  const user = c.get("user");
+  const masterKey = c.env.MASTER_ENCRYPTION_KEY;
+
+  const projectList = await db.select().from(projects).where(eq(projects.userId, user.id)).orderBy(asc(projects.order));
+  const userSettings = await db.select().from(settings).where(eq(settings.userId, user.id)).get();
+  
+  // For overview, we only fetch the ABSOLUTE LATEST for each provider
+  const results: Record<string, any> = {};
+
+  // Parallel fetch for all projects
+  await Promise.all(projectList.map(async (p) => {
+    const proj = mapProject(p);
+    const status: any = {};
+
+    if (proj.githubRepoFullName && userSettings?.githubPat) {
+      try {
+        const actions = await fetchRecentActions(proj.githubRepoFullName, userSettings.githubPat, masterKey);
+        status.github = actions[0]?.conclusion || "unknown";
+      } catch (e) {}
+    }
+
+    if (proj.isCloudflareProject && userSettings?.cloudflareToken && userSettings?.cloudflareAccountId) {
+      try {
+        if (proj.isWorker && proj.cloudflareWorkerName) {
+           const s = await fetchWorkerStatus(userSettings.cloudflareAccountId, proj.cloudflareWorkerName, userSettings.cloudflareToken, masterKey);
+           status.cloudflare = s?.status;
+        } else if (proj.cloudflareProjectName) {
+           const deploys = await fetchRecentPagesDeployments(userSettings.cloudflareAccountId, proj.cloudflareProjectName, userSettings.cloudflareToken, masterKey);
+           status.cloudflare = deploys[0]?.status;
+        }
+      } catch (e) {}
+    }
+
+    if (proj.isDockerProject && proj.serverId && proj.portainerStackName) {
+      // For overview, we skip the heavy docker scan or just use a cached value if we had one
+      // status.docker = "checking...";
+    }
+
+    results[proj.id] = status;
+  }));
+
+  return c.json(results);
 });
 
 // --- Quick Link Endpoints ---

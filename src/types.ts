@@ -13,6 +13,8 @@ export interface Project {
   // Cloudflare Integration
   isCloudflareProject?: boolean | null;
   cloudflareProjectName?: string | null;
+  isWorker?: boolean | null;
+  cloudflareWorkerName?: string | null;
   cloudflareD1Id?: string | null;
   cloudflareR2BucketName?: string | null;
 
@@ -65,6 +67,9 @@ export interface Settings {
   githubPat?: string | null;
   githubUsername?: string | null;
   cloudflareAccountId?: string | null;
+  cloudflareToken?: string | null;
+  hasPat?: boolean;
+  hasCfToken?: boolean;
 }
 
 export interface Server {
@@ -75,7 +80,7 @@ export interface Server {
   apiKey: string;
   createdAt: Date;
   updatedAt: Date;
-  hasKey?: boolean; // For frontend masking
+  hasKey?: boolean;
 }
 
 export type Bindings = {

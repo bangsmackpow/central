@@ -61,7 +61,6 @@ export default function AdminPanel() {
     if (!confirm("Delete this server configuration?")) return;
     const res = await fetch(`/api/servers/${id}`, { method: "DELETE" });
     if (res.ok) {
-      // Filter locally for instant update
       setServers(servers.filter(s => s.id !== id));
     } else {
       const data = await res.json();
@@ -158,7 +157,7 @@ export default function AdminPanel() {
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20"
                     value={settings.githubPat || ""}
                     onChange={(e) => setSettings({ ...settings, githubPat: e.target.value })}
-                    placeholder={(settings as any).hasPat ? "••••••••••••••••" : "Paste PAT"}
+                    placeholder={settings.hasPat ? "••••••••••••••••" : "Paste PAT"}
                   />
                 </div>
               </div>
@@ -167,14 +166,27 @@ export default function AdminPanel() {
                 <Cloud className="w-5 h-5 text-orange-500" />
                 Cloudflare Ecosystem
               </h2>
-              <div className="space-y-2">
-                <label className="text-sm font-bold uppercase text-muted-foreground">Cloudflare Account ID</label>
-                <input
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20"
-                  value={settings.cloudflareAccountId || ""}
-                  onChange={(e) => setSettings({ ...settings, cloudflareAccountId: e.target.value })}
-                  placeholder="32-character ID"
-                />
+              <div className="grid md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-sm font-bold uppercase text-muted-foreground">Cloudflare Account ID</label>
+                  <input
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20"
+                    value={settings.cloudflareAccountId || ""}
+                    onChange={(e) => setSettings({ ...settings, cloudflareAccountId: e.target.value })}
+                    placeholder="32-character ID"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-bold uppercase text-muted-foreground">Cloudflare API Token</label>
+                  <input
+                    type="password"
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20"
+                    value={settings.cloudflareToken || ""}
+                    onChange={(e) => setSettings({ ...settings, cloudflareToken: e.target.value })}
+                    placeholder={settings.hasCfToken ? "••••••••••••••••" : "Paste API Token"}
+                  />
+                  <p className="text-[10px] text-muted-foreground">Needs `Cloudflare Pages: Edit` and `Workers Scripts: Edit` permissions.</p>
+                </div>
               </div>
 
               <button

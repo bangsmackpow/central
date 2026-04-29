@@ -72,6 +72,8 @@ export const projects = sqliteTable("projects", {
   // Cloudflare Integration
   isCloudflareProject: integer("is_cloudflare_project", { mode: "boolean" }).default(false),
   cloudflareProjectName: text("cloudflare_project_name"),
+  isWorker: integer("is_worker", { mode: "boolean" }).default(false),
+  cloudflareWorkerName: text("cloudflare_worker_name"),
   cloudflareD1Id: text("cloudflare_d1_id"),
   cloudflareR2BucketName: text("cloudflare_r2_bucket_name"),
   
@@ -113,6 +115,7 @@ export const settings = sqliteTable("settings", {
   githubPat: text("github_pat"),
   githubUsername: text("github_username"),
   cloudflareAccountId: text("cloudflare_account_id"),
+  cloudflareToken: text("cloudflare_token"),
 });
 
 export const servers = sqliteTable("servers", {

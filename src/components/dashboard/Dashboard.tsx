@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { LogOut, Folder, Plus, Settings as SettingsIcon, GripVertical } from "lucide-react";
+import { LogOut, Folder, Settings as SettingsIcon, GripVertical } from "lucide-react";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
 import { authClient } from "../../lib/auth-client";
 import { Project, User } from "../../types";
@@ -9,6 +9,7 @@ import AdminPanel from "../admin/AdminPanel";
 
 export default function Dashboard({ user }: { user: User }) {
   const [projects, setProjects] = useState<Project[]>([]);
+  const [healthOverview, setHealthOverview] = useState<Record<string, any>>({});
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<"dashboard" | "admin">("dashboard");
@@ -16,6 +17,11 @@ export default function Dashboard({ user }: { user: User }) {
   useEffect(() => {
     if (view === "dashboard") {
       fetchProjects();
+      fetchHealth();
+      
+      // Poll health every 5 minutes
+      const interval = setInterval(fetchHealth, 5 * 60 * 1000);
+      return () => clearInterval(interval);
     }
   }, [view]);
 
@@ -24,6 +30,14 @@ export default function Dashboard({ user }: { user: User }) {
     const data = await res.json();
     setProjects(data);
     setLoading(false);
+  };
+
+  const fetchHealth = async () => {
+    try {
+      const res = await fetch("/api/health/overview");
+      const data = await res.json();
+      setHealthOverview(data);
+    } catch (e) {}
   };
 
   const handleLogout = async () => {
@@ -39,7 +53,6 @@ export default function Dashboard({ user }: { user: User }) {
 
     setProjects(items);
 
-    // Persist to server
     await fetch("/api/projects/reorder", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -66,7 +79,6 @@ export default function Dashboard({ user }: { user: User }) {
           
           <div className="pt-4 pb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 flex justify-between items-center">
             <span>Projects</span>
-            <span className="text-[10px] lowercase font-normal opacity-50 italic">drag to sort</span>
           </div>
 
           <DragDropContext onDragEnd={onDragEnd}>
@@ -106,7 +118,7 @@ export default function Dashboard({ user }: { user: User }) {
           </div>
           <button
             onClick={() => setView("admin")}
-            className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${view === "admin" ? 'bg-secondary text-secondary-foreground' : 'hover:bg-muted text-muted-foreground'}`}
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${view === "admin" ? 'bg-secondary text-secondary-foreground' : 'hover:bg-muted text-muted-foreground text-muted-foreground'}`}
           >
             <SettingsIcon className="w-4 h-4" />
             Admin Panel
@@ -137,7 +149,7 @@ export default function Dashboard({ user }: { user: User }) {
           <div className="p-8">
             <div className="mb-8">
               <h1 className="text-3xl font-bold">Welcome back, {user.name.split(' ')[0]}</h1>
-              <p className="text-muted-foreground">Here is what's happening across your projects.</p>
+              <p className="text-muted-foreground">Pulse check: Your project ecosystem status.</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -151,7 +163,12 @@ export default function Dashboard({ user }: { user: User }) {
                 </div>
               ) : (
                 projects.map((p) => (
-                  <ProjectCard key={p.id} project={p} onClick={() => setSelectedProject(p)} />
+                  <ProjectCard 
+                    key={p.id} 
+                    project={p} 
+                    pulse={healthOverview[p.id]}
+                    onClick={() => setSelectedProject(p)} 
+                  />
                 ))
               )}
             </div>

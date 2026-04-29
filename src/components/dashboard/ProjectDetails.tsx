@@ -25,7 +25,11 @@ import {
   Terminal,
   PlayCircle,
   StopCircle,
-  AlertCircle
+  AlertCircle,
+  History,
+  CheckCircle2,
+  XCircle,
+  Clock
 } from "lucide-react";
 import { Project, Settings, Server } from "../../types";
 import MarkdownEditor from "../editor/MarkdownEditor";
@@ -35,8 +39,8 @@ export default function ProjectDetails({ project: initialProject }: { project: P
   const [activeTab, setActiveTab] = useState<"overview" | "docs" | "intelligence">("overview");
   const [settings, setSettings] = useState<Partial<Settings>>({});
   const [servers, setServers] = useState<Server[]>([]);
-  const [dockerContext, setDockerContext] = useState<any>(null);
-  const [loadingDocker, setLoadingDocker] = useState(false);
+  const [health, setHealth] = useState<any>(null);
+  const [loadingHealth, setLoadingHealth] = useState(false);
   const [isEditingIntel, setIsEditingIntelligence] = useState(false);
   const [showAddLink, setShowAddLink] = useState(false);
   const [newLink, setNewLink] = useState({ label: "", url: "" });
@@ -47,7 +51,24 @@ export default function ProjectDetails({ project: initialProject }: { project: P
     setProject(initialProject);
     fetch("/api/settings").then(res => res.json()).then(data => setSettings(data));
     fetch("/api/servers").then(res => res.json()).then(data => setServers(data));
+    
+    // Initial health fetch
+    fetchHealth();
+
+    // Poll health every 5 mins
+    const interval = setInterval(fetchHealth, 5 * 60 * 1000);
+    return () => clearInterval(interval);
   }, [initialProject]);
+
+  const fetchHealth = async () => {
+    setLoadingHealth(true);
+    try {
+      const res = await fetch(`/api/projects/${initialProject.id}/health`);
+      const data = await res.json();
+      setHealth(data);
+    } catch (e) {}
+    setLoadingHealth(false);
+  };
 
   // Helper to normalize properties
   const getVal = (obj: any, key: string) => {
@@ -58,6 +79,8 @@ export default function ProjectDetails({ project: initialProject }: { project: P
   const cfD1Id = getVal(project, 'cloudflareD1Id');
   const cfR2Bucket = getVal(project, 'cloudflareR2BucketName');
   const cfProjName = getVal(project, 'cloudflareProjectName');
+  const isWorker = getVal(project, 'isWorker');
+  const workerName = getVal(project, 'cloudflareWorkerName');
   
   const isDockerManual = getVal(project, 'isDockerProject');
   const serverId = getVal(project, 'serverId');
@@ -68,30 +91,8 @@ export default function ProjectDetails({ project: initialProject }: { project: P
   const isCfManual = getVal(project, 'isCloudflareProject');
   const githubRepo = getVal(project, 'githubRepoFullName');
 
-  const isCloudflare = 
-    isCfManual || 
-    prodUrl?.includes(".pages.dev") || 
-    prodUrl?.includes(".workers.dev") ||
-    !!cfProjName;
-
+  const isCloudflare = isCfManual || prodUrl?.includes(".pages.dev") || prodUrl?.includes(".workers.dev") || !!cfProjName || !!workerName;
   const isDocker = isDockerManual || !!stackName;
-
-  // Fetch real-time Docker Context when tab is active or project changes
-  useEffect(() => {
-    if (isDocker && serverId && stackName) {
-      refreshDockerContext();
-    }
-  }, [isDocker, serverId, stackName]);
-
-  const refreshDockerContext = async () => {
-    setLoadingDocker(true);
-    try {
-      const res = await fetch(`/api/projects/${project.id}/docker-context`);
-      const data = await res.json();
-      if (!data.error) setDockerContext(data);
-    } catch (e) {}
-    setLoadingDocker(false);
-  };
 
   const getGithubLink = (path: string) => {
     if (!githubRepo) return null;
@@ -102,6 +103,7 @@ export default function ProjectDetails({ project: initialProject }: { project: P
     const accountId = settings.cloudflareAccountId;
     if (!accountId) return null;
     if (type === "pages") return `https://dash.cloudflare.com/${accountId}/pages/view/${cfProjName || project.name}`;
+    if (type === "workers") return `https://dash.cloudflare.com/${accountId}/workers/services/view/${workerName || project.name}/production`;
     if (type === "d1") return cfD1Id ? `https://dash.cloudflare.com/${accountId}/workers/d1/databases/${cfD1Id}/metrics` : `https://dash.cloudflare.com/${accountId}/workers/d1`;
     if (type === "r2") return cfR2Bucket ? `https://dash.cloudflare.com/${accountId}/r2/buckets/${cfR2Bucket}` : `https://dash.cloudflare.com/${accountId}/r2/overview`;
     return null;
@@ -111,40 +113,47 @@ export default function ProjectDetails({ project: initialProject }: { project: P
     const server = servers.find(s => s.id === serverId);
     if (!server) return null;
     const baseUrl = server.url.replace(/\/$/, "");
-    
     if (type === "stack") {
-      const id = dockerContext?.stackId;
-      if (!id) return `${baseUrl}/#!/${endpointId}/docker/stacks`;
-      return `${baseUrl}/#!/${endpointId}/docker/stacks/${stackName}?id=${id}&type=2&regular=true`;
+      const id = health?.docker?.stackId;
+      return id ? `${baseUrl}/#!/${endpointId}/docker/stacks/${stackName}?id=${id}&type=2&regular=true` : `${baseUrl}/#!/${endpointId}/docker/stacks`;
     }
-    if (type === "logs" && containerId) {
-      return `${baseUrl}/#!/${endpointId}/docker/containers/${containerId}/logs`;
-    }
+    if (type === "logs" && containerId) return `${baseUrl}/#!/${endpointId}/docker/containers/${containerId}/logs`;
     return baseUrl;
+  };
+
+  const StatusDot = ({ status }: { status: string }) => {
+    const isSuccess = ['success', 'active', 'completed'].includes(status);
+    const isFailure = ['failure', 'inactive', 'failed', 'timed_out'].includes(status);
+    const isPending = ['in_progress', 'queued', 'waiting', 'pending'].includes(status);
+
+    if (isSuccess) return <div className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-sm shadow-green-500/50" title={status} />;
+    if (isFailure) return <div className="w-2.5 h-2.5 rounded-full bg-destructive shadow-sm shadow-destructive/50" title={status} />;
+    if (isPending) return <div className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse" title={status} />;
+    return <div className="w-2.5 h-2.5 rounded-full bg-muted" title={status} />;
   };
 
   const handleUpdateProject = async () => {
     setSaving(true);
-    const updateData = {
-      codingAgents: project.codingAgents,
-      primaryModel: project.primaryModel,
-      agentInstructionsUrl: project.agentInstructionsUrl,
-      prodUrl: prodUrl,
-      stagingUrl: project.stagingUrl,
-      isCloudflareProject: Boolean(isCfManual),
-      cloudflareProjectName: cfProjName,
-      cloudflareD1Id: cfD1Id,
-      cloudflareR2BucketName: cfR2Bucket,
-      isDockerProject: Boolean(isDockerManual),
-      serverId: serverId,
-      portainerEndpointId: parseInt(endpointId.toString()),
-      portainerStackName: stackName,
-    };
-
     const res = await fetch(`/api/projects/${project.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(updateData),
+      body: JSON.stringify({
+        codingAgents: project.codingAgents,
+        primaryModel: project.primaryModel,
+        agentInstructionsUrl: project.agentInstructionsUrl,
+        prodUrl: prodUrl,
+        stagingUrl: project.stagingUrl,
+        isCloudflareProject: Boolean(isCfManual),
+        cloudflareProjectName: cfProjName,
+        isWorker: Boolean(isWorker),
+        cloudflareWorkerName: workerName,
+        cloudflareD1Id: cfD1Id,
+        cloudflareR2BucketName: cfR2Bucket,
+        isDockerProject: Boolean(isDockerManual),
+        serverId: serverId,
+        portainerEndpointId: parseInt(endpointId.toString()),
+        portainerStackName: stackName,
+      }),
     });
     if (res.ok) setIsEditingIntelligence(false);
     setSaving(false);
@@ -157,6 +166,7 @@ export default function ProjectDetails({ project: initialProject }: { project: P
       const data = await res.json();
       if (res.ok) {
         setProject({ ...project, ...data.meta, updatedAt: new Date().toISOString() });
+        fetchHealth();
         alert("Synced successfully!");
       } else alert(data.error || "Sync failed");
     } catch (e) { alert("Error during sync."); } finally { setSyncing(false); }
@@ -178,7 +188,7 @@ export default function ProjectDetails({ project: initialProject }: { project: P
   };
 
   const handleDeleteLink = async (linkId: string) => {
-    if (!confirm("Delete this link?")) return;
+    if (!confirm("Delete link?")) return;
     const res = await fetch(`/api/projects/${project.id}/links/${linkId}`, { method: "DELETE" });
     if (res.ok) setProject({ ...project, quickLinks: project.quickLinks.filter((l: any) => l.id !== linkId) });
   };
@@ -190,9 +200,7 @@ export default function ProjectDetails({ project: initialProject }: { project: P
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-3xl font-bold">{project.name}</h1>
-              <span className="px-2 py-0.5 rounded bg-primary/10 text-primary text-xs font-bold uppercase">
-                {project.status}
-              </span>
+              <span className="px-2 py-0.5 rounded bg-primary/10 text-primary text-xs font-bold uppercase">{project.status}</span>
             </div>
             <p className="text-muted-foreground mt-1">{project.description}</p>
           </div>
@@ -200,11 +208,6 @@ export default function ProjectDetails({ project: initialProject }: { project: P
             {prodUrl && (
               <a href={prodUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 py-1.5 bg-green-500/10 text-green-600 rounded-md text-sm font-medium hover:bg-green-500/20">
                 <Globe className="w-4 h-4" /> Live
-              </a>
-            )}
-            {githubRepo && (
-              <a href={`https://github.com/${githubRepo}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 py-1.5 bg-muted rounded-md text-sm font-medium hover:bg-muted/80">
-                <Github className="w-4 h-4" /> Repo
               </a>
             )}
           </div>
@@ -221,23 +224,71 @@ export default function ProjectDetails({ project: initialProject }: { project: P
         {activeTab === "overview" && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2 space-y-8">
+              {/* Pulse / System Health */}
+              <section className="bg-card border rounded-xl p-6 shadow-sm">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-lg font-bold flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-primary" /> System Pulse
+                  </h2>
+                  <button onClick={fetchHealth} disabled={loadingHealth} className="p-1.5 rounded-md hover:bg-muted transition-colors disabled:opacity-50">
+                    <RefreshCw className={`w-4 h-4 text-muted-foreground ${loadingHealth ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* GitHub Pulse */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                      <Github className="w-3.5 h-3.5" /> Recent Actions
+                    </div>
+                    <div className="flex items-center gap-2 h-6">
+                      {health?.github?.length > 0 ? health.github.map((run: any) => (
+                        <a key={run.id} href={run.url} target="_blank" rel="noreferrer" title={`${run.name}: ${run.conclusion || run.status}`}>
+                          <StatusDot status={run.conclusion || run.status} />
+                        </a>
+                      )) : <span className="text-[10px] text-muted-foreground italic">No data</span>}
+                    </div>
+                  </div>
+
+                  {/* Cloudflare Pulse */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                      <Cloud className="w-3.5 h-3.5 text-orange-500" /> Recent Builds
+                    </div>
+                    <div className="flex items-center gap-2 h-6">
+                      {health?.cloudflare?.length > 0 ? health.cloudflare.map((d: any) => (
+                        <a key={d.id} href={d.url} target="_blank" rel="noreferrer" title={`${d.environment}: ${d.status}`}>
+                          <StatusDot status={d.status} />
+                        </a>
+                      )) : <span className="text-[10px] text-muted-foreground italic">No data</span>}
+                    </div>
+                  </div>
+
+                  {/* Docker Pulse */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                      <Container className="w-3.5 h-3.5 text-blue-500" /> Containers
+                    </div>
+                    <div className="flex items-center gap-2 h-6">
+                      {health?.docker?.containers?.length > 0 ? health.docker.containers.slice(0, 5).map((c: any) => (
+                        <div key={c.id} title={`${c.name}: ${c.state}`}>
+                          <StatusDot status={c.state} />
+                        </div>
+                      )) : <span className="text-[10px] text-muted-foreground italic">No data</span>}
+                    </div>
+                  </div>
+                </div>
+              </section>
+
               {/* GitHub Context */}
               <section>
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-semibold flex items-center gap-2">
-                    <Github className="w-5 h-5" /> GitHub Context
-                  </h2>
-                  {githubRepo && (
-                    <button onClick={handleSyncWithGithub} disabled={syncing} className="text-xs font-bold text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors">
-                      {syncing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} Sync Repo
-                    </button>
-                  )}
-                </div>
+                <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+                  <Github className="w-5 h-5" /> GitHub Integration
+                </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <QuickLinkItem label="Source Code" url={getGithubLink("")} icon={<Code />} />
-                  <QuickLinkItem label="Issues" url={getGithubLink("/issues")} icon={<MessageSquare />} />
                   <QuickLinkItem label="Actions / CI" url={getGithubLink("/actions")} icon={<Activity />} />
-                  <QuickLinkItem label="Secrets & Variables" url={getGithubLink("/settings/secrets/actions")} icon={<ShieldCheck />} />
+                  <QuickLinkItem label="Issues" url={getGithubLink("/issues")} icon={<MessageSquare />} />
+                  <QuickLinkItem label="Secrets" url={getGithubLink("/settings/secrets/actions")} icon={<ShieldCheck />} />
                 </div>
               </section>
 
@@ -245,53 +296,35 @@ export default function ProjectDetails({ project: initialProject }: { project: P
               {isCloudflare && (
                 <section>
                   <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-                    <Cloud className="w-5 h-5 text-orange-500" /> Cloudflare Infrastructure
+                    <Cloud className="w-5 h-5 text-orange-500" /> Cloudflare Resources
                   </h2>
-                  {!settings.cloudflareAccountId ? (
-                    <div className="p-4 bg-orange-50 border border-orange-200 rounded-md text-orange-800 text-sm">Configure your Account ID in Admin Panel.</div>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {isWorker ? (
+                      <QuickLinkItem label="Worker Production" url={getCloudflareLink("workers")} icon={<Cloud />} />
+                    ) : (
                       <QuickLinkItem label="Pages Deployment" url={getCloudflareLink("pages")} icon={<Cloud />} />
-                      <QuickLinkItem label="D1 Database" url={getCloudflareLink("d1")} icon={<Database />} />
-                      <QuickLinkItem label="R2 Storage" url={getCloudflareLink("r2")} icon={<HardDrive />} />
-                    </div>
-                  )}
+                    )}
+                    <QuickLinkItem label="D1 Database" url={getCloudflareLink("d1")} icon={<Database />} />
+                    <QuickLinkItem label="R2 Storage" url={getCloudflareLink("r2")} icon={<HardDrive />} />
+                  </div>
                 </section>
               )}
 
               {/* Docker Infrastructure */}
               {isDocker && (
                 <section>
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-xl font-semibold flex items-center gap-2">
-                      <Container className="w-5 h-5 text-blue-500" /> Docker & Portainer
-                    </h2>
-                    <button onClick={refreshDockerContext} disabled={loadingDocker} className="text-xs font-bold text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors">
-                      {loadingDocker ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} Refresh Status
-                    </button>
+                  <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+                    <Container className="w-5 h-5 text-blue-500" /> Docker & Portainer
+                  </h2>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <QuickLinkItem label={`Stack: ${stackName}`} url={getPortainerLink("stack")} icon={<Layout />} />
+                    {(health?.docker?.containers || []).map((c: any) => (
+                      <div key={c.id} className="relative group/link">
+                        <QuickLinkItem label={`Logs: ${c.name}`} url={getPortainerLink("logs", c.id)} icon={<Terminal className={c.state === 'running' ? 'text-green-500' : 'text-destructive'} />} />
+                        <span className="absolute bottom-1 right-3 text-[8px] font-mono opacity-50 uppercase">{c.status}</span>
+                      </div>
+                    ))}
                   </div>
-                  {!serverId ? (
-                    <div className="p-4 bg-blue-50 border border-blue-200 rounded-md text-blue-800 text-sm">Link this project to a server in the <strong>Intelligence</strong> tab.</div>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <QuickLinkItem label={`Stack: ${stackName}`} url={getPortainerLink("stack")} icon={<Layout />} />
-                      {(dockerContext?.containers || []).map((c: any) => (
-                        <div key={c.id} className="relative group/link">
-                          <QuickLinkItem 
-                            label={`Logs: ${c.name}`} 
-                            url={getPortainerLink("logs", c.id)} 
-                            icon={c.state === 'running' ? <PlayCircle className="text-green-500" /> : <StopCircle className="text-destructive" />} 
-                          />
-                          <span className="absolute bottom-1 right-3 text-[8px] font-mono opacity-50 uppercase">{c.status}</span>
-                        </div>
-                      ))}
-                      {!loadingDocker && dockerContext?.containers.length === 0 && (
-                        <div className="col-span-full p-4 border-2 border-dashed rounded-md text-center text-muted-foreground text-xs italic">
-                          No containers found for stack "{stackName}". Check Portainer settings.
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </section>
               )}
 
@@ -301,17 +334,16 @@ export default function ProjectDetails({ project: initialProject }: { project: P
                   <LinkIcon className="w-5 h-5" /> Project Links
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {(project.quickLinks || []).map((link: any, i: number) => (
-                    <div key={link.id || i} className="relative group/link">
+                  {(project.quickLinks || []).map((link: any) => (
+                    <div key={link.id} className="relative group/link">
                       <QuickLinkItem label={link.label} url={link.url} />
                       <button onClick={() => handleDeleteLink(link.id)} className="absolute -top-2 -right-2 p-1.5 bg-destructive text-destructive-foreground rounded-full opacity-0 group-hover/link:opacity-100 transition-opacity shadow-lg">
                         <Trash2 className="w-3 h-3" />
                       </button>
                     </div>
                   ))}
-                  
                   {showAddLink ? (
-                    <form onSubmit={handleAddLink} className="p-4 rounded-lg border bg-card space-y-3">
+                    <form onSubmit={handleAddLink} className="p-4 rounded-lg border bg-card space-y-3 shadow-inner">
                       <input className="w-full p-2 border rounded-md text-sm" placeholder="Label" value={newLink.label} onChange={(e) => setNewLink({ ...newLink, label: e.target.value })} required />
                       <input className="w-full p-2 border rounded-md text-sm" placeholder="URL" type="url" value={newLink.url} onChange={(e) => setNewLink({ ...newLink, url: e.target.value })} required />
                       <div className="flex gap-2">
@@ -328,31 +360,23 @@ export default function ProjectDetails({ project: initialProject }: { project: P
               </section>
             </div>
 
+            {/* Sidebar Meta */}
             <div className="space-y-8">
-              <section className="rounded-lg border bg-card p-6">
+              <section className="rounded-lg border bg-card p-6 shadow-sm">
                 <h2 className="text-lg font-semibold mb-4">Project Meta</h2>
                 <div className="space-y-4 text-sm">
                   <div className="flex justify-between border-b pb-2">
                     <span className="text-muted-foreground">GitHub Repo</span>
                     <span className="font-mono text-xs truncate max-w-[150px]">{githubRepo || "Not linked"}</span>
                   </div>
-                  {isCloudflare && (
-                    <div className="flex justify-between border-b pb-2">
-                      <span className="text-muted-foreground">Cloudflare</span>
-                      <span className="font-mono text-xs">{cfProjName || project.name}</span>
-                    </div>
-                  )}
-                  {isDocker && (
-                    <div className="flex justify-between border-b pb-2">
-                      <span className="text-muted-foreground">Docker Server</span>
-                      <span className="font-mono text-xs">{servers.find(s => s.id === serverId)?.name || "Unlinked"}</span>
-                    </div>
-                  )}
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Updated</span>
+                    <span className="text-muted-foreground">Last Sync</span>
                     <span>{new Date(getVal(project, 'updatedAt')).toLocaleDateString()}</span>
                   </div>
                 </div>
+                <button onClick={handleSyncWithGithub} disabled={syncing} className="w-full mt-6 py-2 border rounded-md text-xs font-bold hover:bg-muted transition-all flex items-center justify-center gap-2">
+                   {syncing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} Sync Repo Files
+                </button>
               </section>
             </div>
           </div>
@@ -361,7 +385,7 @@ export default function ProjectDetails({ project: initialProject }: { project: P
         {activeTab === "intelligence" && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2 space-y-8">
-              <section className="bg-card border rounded-lg p-6">
+              <section className="bg-card border rounded-lg p-6 shadow-sm">
                 <div className="flex items-center justify-between mb-6">
                   <h2 className="text-xl font-semibold flex items-center gap-2">
                     <Cpu className="w-5 h-5 text-purple-500" /> Intelligence Stack
@@ -392,47 +416,39 @@ export default function ProjectDetails({ project: initialProject }: { project: P
                 </div>
 
                 {isEditingIntel && (
-                  <div className="mt-8 pt-8 border-t space-y-6">
+                  <div className="mt-8 pt-8 border-t space-y-6 animate-in slide-in-from-top-2 duration-300">
                     <div className="space-y-4">
                       <h3 className="font-bold text-orange-600 text-xs uppercase tracking-widest flex items-center gap-2"><Cloud className="w-4 h-4" /> Cloudflare Config</h3>
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1">
-                          <label className="text-xs font-medium">CF Project Name</label>
+                          <label className="text-xs font-medium">Pages Name</label>
                           <input className="w-full p-2 border rounded-md text-sm" value={cfProjName || ""} onChange={(e) => setProject({ ...project, cloudflareProjectName: e.target.value })} />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-xs font-medium">D1 DB ID</label>
-                          <input className="w-full p-2 border rounded-md text-sm font-mono" value={cfD1Id || ""} onChange={(e) => setProject({ ...project, cloudflareD1Id: e.target.value })} />
+                          <label className="text-xs font-medium">Worker Name</label>
+                          <input className="w-full p-2 border rounded-md text-sm" value={workerName || ""} onChange={(e) => setProject({ ...project, cloudflareWorkerName: e.target.value })} />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input type="checkbox" id="isWorker" checked={!!isWorker} onChange={(e) => setProject({ ...project, isWorker: e.target.checked })} />
+                          <label htmlFor="isWorker" className="text-sm font-medium">This is a Worker</label>
                         </div>
                       </div>
                     </div>
 
                     <div className="space-y-4">
-                      <h3 className="font-bold text-blue-600 text-xs uppercase tracking-widest flex items-center gap-2"><Container className="w-4 h-4" /> Docker & Portainer Config</h3>
+                      <h3 className="font-bold text-blue-600 text-xs uppercase tracking-widest flex items-center gap-2"><Container className="w-4 h-4" /> Docker Config</h3>
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1">
                           <label className="text-xs font-medium">Target Server</label>
-                          <select 
-                            className="w-full p-2 border rounded-md text-sm bg-background"
-                            value={serverId || ""}
-                            onChange={(e) => setProject({ ...project, serverId: e.target.value })}
-                          >
+                          <select className="w-full p-2 border rounded-md text-sm bg-background" value={serverId || ""} onChange={(e) => setProject({ ...project, serverId: e.target.value })}>
                             <option value="">Select a Server</option>
                             {servers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                           </select>
                         </div>
                         <div className="space-y-1">
-                          <label className="text-xs font-medium">Environment ID</label>
-                          <input className="w-full p-2 border rounded-md text-sm" type="number" value={endpointId} onChange={(e) => setProject({ ...project, portainerEndpointId: e.target.value })} />
-                        </div>
-                        <div className="space-y-1">
                           <label className="text-xs font-medium">Stack Name</label>
                           <input className="w-full p-2 border rounded-md text-sm" value={stackName || ""} onChange={(e) => setProject({ ...project, portainerStackName: e.target.value })} />
                         </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <input type="checkbox" id="isDocker" checked={!!isDockerManual} onChange={(e) => setProject({ ...project, isDockerProject: e.target.checked })} />
-                        <label htmlFor="isDocker" className="text-sm font-medium">Force Docker Mode</label>
                       </div>
                     </div>
 
@@ -443,7 +459,7 @@ export default function ProjectDetails({ project: initialProject }: { project: P
                           <input className="w-full p-2 border rounded-md text-sm" value={prodUrl || ""} onChange={(e) => setProject({ ...project, prodUrl: e.target.value })} />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-xs font-medium">Agent Instructions URL</label>
+                          <label className="text-xs font-medium">Instructions URL</label>
                           <input className="w-full p-2 border rounded-md text-sm" value={project.agentInstructionsUrl || ""} onChange={(e) => setProject({ ...project, agentInstructionsUrl: e.target.value })} />
                         </div>
                       </div>
@@ -464,12 +480,12 @@ export default function ProjectDetails({ project: initialProject }: { project: P
 function QuickLinkItem({ label, url, icon }: { label: string, url: string | null, icon?: React.ReactNode }) {
   if (!url) return null;
   return (
-    <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between p-4 rounded-lg border bg-card hover:border-primary transition-colors group">
+    <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between p-4 rounded-lg border bg-card hover:border-primary transition-colors group shadow-sm">
       <div className="flex items-center gap-3">
         <div className="p-2 rounded bg-muted">
-          {icon ? icon : <LinkIcon className="w-4 h-4 text-primary" />}
+          {icon ? React.cloneElement(icon as React.ReactElement, { className: "w-4 h-4 text-primary" }) : <LinkIcon className="w-4 h-4 text-primary" />}
         </div>
-        <span className="font-medium">{label}</span>
+        <span className="font-medium text-sm">{label}</span>
       </div>
       <ExternalLink className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
     </a>
