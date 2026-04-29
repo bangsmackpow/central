@@ -6,6 +6,7 @@ import { Project, User } from "../../types";
 import ProjectCard from "./ProjectCard";
 import ProjectDetails from "./ProjectDetails";
 import AdminPanel from "../admin/AdminPanel";
+import CommandPalette from "../layout/CommandPalette";
 
 export default function Dashboard({ user }: { user: User }) {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -19,7 +20,6 @@ export default function Dashboard({ user }: { user: User }) {
       fetchProjects();
       fetchHealth();
       
-      // Poll health every 5 minutes
       const interval = setInterval(fetchHealth, 5 * 60 * 1000);
       return () => clearInterval(interval);
     }
@@ -62,6 +62,15 @@ export default function Dashboard({ user }: { user: User }) {
 
   return (
     <div className="flex h-screen bg-muted/20">
+      <CommandPalette 
+        projects={projects}
+        onSelectProject={(p) => {
+          setView("dashboard");
+          setSelectedProject(p);
+        }}
+        onNavigateAdmin={() => setView("admin")}
+      />
+      
       <aside className="w-64 border-r bg-card flex flex-col">
         <div className="p-6 border-b">
           <h2 className="text-xl font-bold flex items-center gap-2">
@@ -118,7 +127,7 @@ export default function Dashboard({ user }: { user: User }) {
           </div>
           <button
             onClick={() => setView("admin")}
-            className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${view === "admin" ? 'bg-secondary text-secondary-foreground' : 'hover:bg-muted text-muted-foreground text-muted-foreground'}`}
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${view === "admin" ? 'bg-secondary text-secondary-foreground' : 'hover:bg-muted text-muted-foreground'}`}
           >
             <SettingsIcon className="w-4 h-4" />
             Admin Panel

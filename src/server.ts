@@ -9,7 +9,7 @@ import { Bindings, Variables, Project, Server } from "./types";
 import { encrypt, decrypt, isEncrypted } from "./lib/crypto";
 import { syncProjectMetadata, fetchRecentActions } from "./lib/github";
 import { fetchDockerContext } from "./lib/portainer";
-import { fetchRecentPagesDeployments, fetchWorkerStatus } from "./lib/cloudflare";
+import { fetchRecentPagesDeployments, fetchWorkerStatus, listPagesProjects, listWorkers, listD1Databases, listR2Buckets } from "./lib/cloudflare";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -414,15 +414,34 @@ api.get("/health/overview", async (c) => {
       } catch (e) {}
     }
 
-    if (proj.isDockerProject && proj.serverId && proj.portainerStackName) {
-      // For overview, we skip the heavy docker scan or just use a cached value if we had one
-      // status.docker = "checking...";
-    }
-
     results[proj.id] = status;
   }));
 
   return c.json(results);
+});
+
+api.get("/cloudflare/resources", async (c) => {
+  const db = getDb(c.env.DB);
+  const user = c.get("user");
+  const masterKey = c.env.MASTER_ENCRYPTION_KEY;
+
+  const userSettings = await db.select().from(settings).where(eq(settings.userId, user.id)).get();
+  if (!userSettings?.cloudflareToken || !userSettings?.cloudflareAccountId) {
+    return c.json({ error: "Cloudflare not configured" }, 400);
+  }
+
+  try {
+    const [pages, workers, d1, r2] = await Promise.all([
+      listPagesProjects(userSettings.cloudflareAccountId, userSettings.cloudflareToken, masterKey),
+      listWorkers(userSettings.cloudflareAccountId, userSettings.cloudflareToken, masterKey),
+      listD1Databases(userSettings.cloudflareAccountId, userSettings.cloudflareToken, masterKey),
+      listR2Buckets(userSettings.cloudflareAccountId, userSettings.cloudflareToken, masterKey),
+    ]);
+
+    return c.json({ pages, workers, d1, r2 });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
 });
 
 // --- Quick Link Endpoints ---
