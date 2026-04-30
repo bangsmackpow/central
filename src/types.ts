@@ -89,6 +89,8 @@ export type Bindings = {
   BETTER_AUTH_SECRET: string;
   BETTER_AUTH_URL: string;
   MASTER_ENCRYPTION_KEY: string;
+  AI: any; // Cloudflare Workers AI binding
+  VECTORIZE: Vectorize; // Cloudflare Vectorize binding
   ASSETS: { fetch: typeof fetch };
 };
 
