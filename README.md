@@ -57,6 +57,16 @@ Update `wrangler.toml` with your `database_id`.
 - **Documentation**: Markdown notes stored in R2 with XSS-safe rendering.
 - **UX**: Drag-and-drop project reordering in the sidebar.
 
+## 🛡️ Security
+
+This project employs automated security scanning via GitHub Actions:
+- **SCA (Trivy)**: Scans dependencies for known vulnerabilities.
+- **Secrets (Gitleaks)**: Prevents hardcoded credentials and API keys from being committed.
+- **SAST (Semgrep)**: Static analysis for security-sensitive code patterns.
+- **Cloudflare Audit**: Custom validation for `wrangler.toml` to prevent hardcoded secrets in environment variables.
+
+Scanning runs automatically on every push to `main` and all pull requests.
+
 ## 🤝 Project Links
 - [Architectural Memory](./PROJECT_MEMORY.md)
 - [AI & Agent Roadmap](./agents.md)
