@@ -40,4 +40,6 @@ Central Dashboard is a specialized project management hub architected for the Cl
 - ✅ Docker / Portainer Deep-Linking & Container Discovery
 - ✅ Real-time Health "Pulse" (GitHub Actions & CF Builds)
 - ✅ Sidebar Drag-and-Drop Reordering
-- ✅ Automated CI/CD
+- ✅ Automated CI/CD & Security Pipelines (Trivy, Gitleaks, Semgrep)
+- ✅ Cloudflare Vectorize & AI Integration
+- ✅ Custom Infrastructure Auditing
