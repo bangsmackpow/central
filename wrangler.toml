@@ -14,5 +14,12 @@ migrations_dir = "migrations"
 binding = "BUCKET"
 bucket_name = "central-assets"
 
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "project-docs"
+
+[ai]
+binding = "AI"
+
 [vars]
 BETTER_AUTH_URL = "http://localhost:5173" # Change to production URL on deploy
